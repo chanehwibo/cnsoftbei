@@ -186,3 +186,11 @@
 - 新增 `scripts/show-tools.ps1`，一键输出 MCP 工具清单。
 - 新增 `scripts/clean.ps1`，清理 Python 缓存目录。
 - 新增 `docs/SCRIPTS.md`，记录脚本用途和运行方式。
+
+### Step 24: 初始化 Git 仓库
+
+- 在项目目录执行 `git init`，创建本地 Git 仓库。
+- 将默认分支重命名为 `main`。
+- 使用已有全局 Git 身份完成首个提交。
+- 首个提交信息：`Initial safeops agent project`。
+- 首个提交哈希：`ac63a73`。
