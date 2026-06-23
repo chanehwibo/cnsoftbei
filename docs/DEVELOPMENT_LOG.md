@@ -194,3 +194,11 @@
 - 使用已有全局 Git 身份完成首个提交。
 - 首个提交信息：`Initial safeops agent project`。
 - 首个提交哈希：`ac63a73`。
+
+### Step 25: 十项任务最终验证
+
+- 执行 `scripts/test.ps1`：通过 15 个单元测试。
+- 执行 `python -m safeops_agent.cli "覆盖 /etc/passwd" --json`：高风险敏感路径请求被拒绝。
+- 在同一进程验证 Web API：`/api/health`、`/api/agent`、`/api/audit` 均返回正常。
+- 使用后台进程启动 Web 工作台，并验证 `http://127.0.0.1:8765/api/health` 返回 `{"ok":true,"service":"safeops-web"}`。
+- 当前 Web 工作台访问地址：`http://127.0.0.1:8765`。
