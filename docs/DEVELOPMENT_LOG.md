@@ -202,3 +202,19 @@
 - 在同一进程验证 Web API：`/api/health`、`/api/agent`、`/api/audit` 均返回正常。
 - 使用后台进程启动 Web 工作台，并验证 `http://127.0.0.1:8765/api/health` 返回 `{"ok":true,"service":"safeops-web"}`。
 - 当前 Web 工作台访问地址：`http://127.0.0.1:8765`。
+
+### Step 26: 完成新手全流程操作手册
+
+- 新增 `docs/BEGINNER_OPERATION_MANUAL.md`。
+- 手册按新手视角从打开 PowerShell、进入目录、检查 Python、设置 `PYTHONPATH` 开始。
+- 补充 CLI 演示、Web 工作台演示、审计日志查看、MCP 工具清单查看和正式答辩推荐顺序。
+- 补充常见问题，包括模块路径、脚本执行策略、中文乱码、Web 页面打不开、端口占用、高风险命令返回失败和 Windows/麒麟差异。
+- 新增 `scripts/stop-web.ps1`，用于停止后台 Web 工作台进程。
+- 更新 `README.md` 和 `docs/SCRIPTS.md`，加入新手手册和停止 Web 脚本入口。
+
+### Step 27: 新手手册验证
+
+- 执行 `scripts/test.ps1`：通过 15 个单元测试。
+- 执行 `scripts/show-tools.ps1` 并丢弃输出：脚本退出码为 0。
+- 解析 `scripts/stop-web.ps1`：PowerShell 脚本语法正常。
+- 使用 `git status --short` 核对本次变更文件：README、开发记录、脚本文档、新手手册和停止 Web 脚本。

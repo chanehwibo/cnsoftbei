@@ -51,3 +51,14 @@ powershell -ExecutionPolicy Bypass -File scripts\clean.ps1
 
 - 删除 `__pycache__`。
 - 删除 `.pytest_cache`。
+
+## 6. 停止 Web 工作台
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stop-web.ps1
+```
+
+作用：
+
+- 查找命令行中包含 `safeops_agent.web_server` 的进程。
+- 停止 SafeOps Web 工作台后台进程。

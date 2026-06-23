@@ -13,6 +13,12 @@
 
 ## 运行方式
 
+如果你是第一次运行，优先阅读：
+
+- [新手全流程操作手册](docs/BEGINNER_OPERATION_MANUAL.md)
+- [答辩演示脚本](docs/DEMO_SCRIPT.md)
+- [开发脚本说明](docs/SCRIPTS.md)
+
 在项目目录执行：
 
 ```powershell
