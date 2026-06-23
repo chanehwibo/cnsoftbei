@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SafeOps Agent</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">SO</div>
+          <div>
+            <h1>SafeOps Agent</h1>
+            <p>麒麟安全智能运维</p>
+          </div>
+        </div>
+        <nav class="quick-actions" aria-label="常用任务">
+          <button data-prompt="查看系统信息">系统信息</button>
+          <button data-prompt="查看CPU和内存">资源指标</button>
+          <button data-prompt="查看监听端口">监听端口</button>
+          <button data-prompt="查看 nginx 服务状态">服务状态</button>
+          <button data-prompt="重启 nginx 服务">重启服务</button>
+          <button data-prompt="覆盖 /etc/passwd">高风险拦截</button>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <section class="topbar">
+          <div>
+            <h2>运维工作台</h2>
+            <p id="health">连接中</p>
+          </div>
+          <button id="refreshAudit" class="secondary">刷新审计</button>
+        </section>
+
+        <section class="status-grid" aria-label="状态概览">
+          <div class="metric">
+            <span>最近工具</span>
+            <strong id="lastTool">-</strong>
+          </div>
+          <div class="metric">
+            <span>风险等级</span>
+            <strong id="lastRisk">-</strong>
+          </div>
+          <div class="metric">
+            <span>审批状态</span>
+            <strong id="confirmState">-</strong>
+          </div>
+          <div class="metric">
+            <span>工具数量</span>
+            <strong id="toolCount">-</strong>
+          </div>
+        </section>
+
+        <section class="console">
+          <div id="messages" class="messages" aria-live="polite"></div>
+          <form id="requestForm" class="composer">
+            <input id="requestInput" autocomplete="off" placeholder="输入运维请求" required>
+            <label class="confirm">
+              <input id="confirmInput" type="checkbox">
+              <span>确认中风险操作</span>
+            </label>
+            <button type="submit">执行</button>
+          </form>
+        </section>
+      </main>
+
+      <aside class="inspector">
+        <section>
+          <h2>工具清单</h2>
+          <div id="tools" class="tool-list"></div>
+        </section>
+        <section>
+          <h2>审计日志</h2>
+          <div id="audit" class="audit-list"></div>
+        </section>
+      </aside>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

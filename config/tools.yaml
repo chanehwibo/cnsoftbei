@@ -1,0 +1,5 @@
+disabled_tools:
+tool_defaults:
+  process_limit: 10
+  network_limit: 50
+  log_lines: 100

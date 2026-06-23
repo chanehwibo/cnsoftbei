@@ -1,0 +1,41 @@
+destructive_keywords:
+  - rm -rf
+  - rm -fr
+  - mkfs
+  - dd if=
+  - shutdown
+  - poweroff
+  - reboot
+  - chmod 777
+  - chmod -r
+  - chown -r
+  - iptables -f
+  - 格式化
+  - 清空磁盘
+  - 清空日志
+  - 删除根目录
+  - 删除 /
+  - 删除/etc
+  - 删除/boot
+  - 删除/usr
+  - 删除系统文件
+  - 递归删除
+  - 关闭防火墙
+  - 禁用审计
+  - 修改root
+  - 删除用户
+  - 新增管理员
+  - 提权
+  - 关机
+  - 重启系统
+  - 重装系统
+sensitive_paths:
+  - /
+  - /etc
+  - /boot
+  - /usr
+  - /bin
+  - /sbin
+  - /var/lib
+  - /root
+  - C:\Windows
