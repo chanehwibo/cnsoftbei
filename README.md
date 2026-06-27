@@ -16,6 +16,9 @@
 如果你是第一次运行，优先阅读：
 
 - [新手全流程操作手册](docs/BEGINNER_OPERATION_MANUAL.md)
+- [初赛提交说明](docs/INITIAL_SUBMISSION.md)
+- [赛题要求完成度矩阵](docs/COMPLETION_MATRIX.md)
+- [麒麟系统实机验证清单](docs/KYLIN_VALIDATION_CHECKLIST.md)
 - [答辩演示脚本](docs/DEMO_SCRIPT.md)
 - [开发脚本说明](docs/SCRIPTS.md)
 
@@ -36,6 +39,18 @@ $env:PYTHONPATH='src'
 python -m unittest discover -s tests
 ```
 
+
+一键验收：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
+```
+
+生成提交包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1
+```
 审计日志默认写入：
 
 ```text

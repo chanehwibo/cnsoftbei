@@ -218,3 +218,34 @@
 - 执行 `scripts/show-tools.ps1` 并丢弃输出：脚本退出码为 0。
 - 解析 `scripts/stop-web.ps1`：PowerShell 脚本语法正常。
 - 使用 `git status --short` 核对本次变更文件：README、开发记录、脚本文档、新手手册和停止 Web 脚本。
+
+## 2026-06-27
+
+### Step 28: 完成初赛提交说明和完成度矩阵
+
+- 新增 `docs/INITIAL_SUBMISSION.md`，说明项目名称、赛题对应、仓库信息、已完成能力、演示方式、提交材料清单、当前限制和后续计划。
+- 新增 `docs/COMPLETION_MATRIX.md`，逐项映射赛题要求、当前完成度、对应实现和说明。
+- 更新 `README.md`，在新手入口中加入初赛提交说明和完成度矩阵。
+
+### Step 29: 完成麒麟系统实机验证清单
+
+- 新增 `docs/KYLIN_VALIDATION_CHECKLIST.md`，区分 Windows 开发验证和真实麒麟系统实机验证。
+- 补充操作系统基础信息、项目基础功能、安全策略和 Web 工作台验证项。
+- 补充验证记录模板、通过标准和当前未实机验证的如实说明。
+- 更新 `README.md`，加入麒麟系统实机验证清单入口。
+
+### Step 30: 完成验收脚本、打包脚本和 CLI 工具清单入口
+
+- 新增 `scripts/acceptance.ps1`，一键执行单元测试、工具清单、低风险查询、中风险确认、高风险拦截和审计日志检查。
+- 新增 `scripts/package.ps1`，生成 `dist/cnsoftbei-submission.zip` 初赛提交包。
+- 更新 `safeops_agent.cli`，新增 `--list-tools` 跨平台工具清单入口。
+- 更新 `docs/SCRIPTS.md` 和 `README.md`，补充验收、打包和工具清单命令说明。
+
+### Step 31: 完成测试、验收和提交包验证
+
+- 执行 `scripts/test.ps1`：通过 15 个单元测试。
+- 执行 `scripts/acceptance.ps1`：通过工具清单、低风险查询、中风险确认、高风险拦截和审计日志检查。
+- 修正 `scripts/acceptance.ps1` 的 Python stdout/stderr 捕获方式，避免 PowerShell 将 `unittest` 进度输出包装成错误对象。
+- 针对 Windows PowerShell 5 执行含中文 `.ps1` 的编码要求，保留 `scripts/acceptance.ps1` UTF-8 BOM，确保中文请求参数可正确解析。
+- 执行 `scripts/package.ps1`：成功生成 `dist/cnsoftbei-submission.zip`。
+- 使用 `git status --short` 核对本轮变更文件，确认提交包位于 `dist/` 且受 `.gitignore` 忽略。
