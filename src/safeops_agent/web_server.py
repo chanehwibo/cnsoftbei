@@ -60,6 +60,8 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
                 "message": response.message,
                 "tool": response.tool,
                 "risk": None if response.risk is None else response.risk.value,
+                "risk_score": response.risk_score,
+                "decision_summary": response.decision_summary,
                 "data": response.data,
                 "requires_confirmation": response.requires_confirmation,
             },

@@ -96,3 +96,38 @@ powershell -ExecutionPolicy Bypass -File scripts\stop-web.ps1
 
 - 查找命令行中包含 `safeops_agent.web_server` 的进程。
 - 停止 SafeOps Web 工作台后台进程。
+## 9. 生成自动验收报告
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\report.ps1
+```
+
+作用：
+
+- 运行一键验收。
+- 统计 MCP 风格工具数量和分类。
+- 汇总最近审计日志。
+- 生成 `dist/acceptance-report.md`。
+
+## 10. 运行 Web 冒烟测试
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
+```
+
+作用：
+
+- 自动启动 Web 工作台。
+- 验证 `/api/health`、`/api/tools`、`/api/agent`、`/api/audit`。
+- 测试结束后自动停止临时 Web 进程。
+
+## 11. 校验提交包
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
+```
+
+作用：
+
+- 检查 `dist/cnsoftbei-submission.zip` 是否包含关键源码、测试、配置、Web、脚本和文档。
+- 检查提交包不包含 `.git`、运行期审计日志、缓存和 `dist/`。

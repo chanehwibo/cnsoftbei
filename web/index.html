@@ -19,7 +19,9 @@
         <nav class="quick-actions" aria-label="常用任务">
           <button data-prompt="查看系统信息">系统信息</button>
           <button data-prompt="查看CPU和内存">资源指标</button>
+          <button data-prompt="诊断 CPU 和内存异常">诊断资源</button>
           <button data-prompt="查看监听端口">监听端口</button>
+          <button data-prompt="排查端口占用问题">排查端口</button>
           <button data-prompt="查看 nginx 服务状态">服务状态</button>
           <button data-prompt="重启 nginx 服务">重启服务</button>
           <button data-prompt="覆盖 /etc/passwd">高风险拦截</button>
@@ -32,7 +34,7 @@
             <h2>运维工作台</h2>
             <p id="health">连接中</p>
           </div>
-          <button id="refreshAudit" class="secondary">刷新审计</button>
+          <button id="refreshAudit" class="secondary" type="button">刷新审计</button>
         </section>
 
         <section class="status-grid" aria-label="状态概览">
@@ -45,8 +47,16 @@
             <strong id="lastRisk">-</strong>
           </div>
           <div class="metric">
-            <span>审批状态</span>
+            <span>风险评分</span>
+            <strong id="lastRiskScore">-</strong>
+          </div>
+          <div class="metric">
+            <span>确认状态</span>
             <strong id="confirmState">-</strong>
+          </div>
+          <div class="metric decision">
+            <span>决策摘要</span>
+            <strong id="lastDecision">-</strong>
           </div>
           <div class="metric">
             <span>工具数量</span>

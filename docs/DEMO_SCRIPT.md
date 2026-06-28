@@ -29,7 +29,7 @@ python -m unittest discover -s tests
 预期：
 
 ```text
-Ran 15 tests
+Ran 20 tests
 OK
 ```
 
@@ -235,3 +235,46 @@ chcp 65001
 ```powershell
 $env:PYTHONPATH='src'
 ```
+
+## 13. 新增亮点演示段落
+
+### 13.1 风险评分和决策摘要
+
+命令：
+
+```powershell
+python -m safeops_agent.cli "查看系统信息" --json
+```
+
+讲解词：每次响应都会给出 `risk_score` 和 `decision_summary`，评委可以看到系统为什么允许、拒绝或要求确认。
+
+### 13.2 故障诊断能力
+
+命令：
+
+```powershell
+python -m safeops_agent.cli "诊断 CPU 和内存异常" --json
+python -m safeops_agent.cli "排查端口占用问题" --json
+```
+
+讲解词：诊断工具输出现象、可能原因、建议动作和证据数据，使系统从“工具调用”升级为“辅助排障”。
+
+### 13.3 Dry-run 安全预案
+
+命令：
+
+```powershell
+python -m safeops_agent.cli "重启 nginx 服务" --json
+```
+
+讲解词：这是中风险操作。未确认时系统不执行真实变更，只返回 Dry-run 预案，包含前置检查、计划步骤、回滚建议和风险控制。
+
+### 13.4 Web 可视化亮点
+
+命令：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\web.ps1
+```
+
+讲解词：Web 工作台会同步展示工具、风险等级、风险评分、确认状态、决策摘要、诊断报告、Dry-run 预案和审计记录，适合现场完整演示。

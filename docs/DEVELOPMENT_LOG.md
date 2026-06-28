@@ -249,3 +249,43 @@
 - 针对 Windows PowerShell 5 执行含中文 `.ps1` 的编码要求，保留 `scripts/acceptance.ps1` UTF-8 BOM，确保中文请求参数可正确解析。
 - 执行 `scripts/package.ps1`：成功生成 `dist/cnsoftbei-submission.zip`。
 - 使用 `git status --short` 核对本轮变更文件，确认提交包位于 `dist/` 且受 `.gitignore` 忽略。
+
+## 2026-06-28
+
+### Step 32: 完成后续完善 TODO List
+
+- 新增 `docs/TODO_LIST.md`，按 P0/P1/P2/P3 梳理初赛可信度、智能运维亮点、Web 展示、协议模型扩展、安全工程和答辩材料任务。
+- 为每个待办项补充目标产物、验收标准和当前状态，便于后续逐项推进。
+- 补充推荐执行顺序、当前最建议先做的 5 项，以及暂不优先事项。
+- 更新 `README.md`，在新手入口中加入后续完善 TODO List。
+### Step 33: 完成功能亮点优化路线和自动化脚本
+
+- 新增 `docs/FEATURE_HIGHLIGHTS_PLAN.md`，整理本轮可完善功能、亮点价值、演示命令和答辩表达。
+- 新增 `scripts/report.ps1`，自动运行验收、统计工具清单、汇总审计日志并生成 `dist/acceptance-report.md`。
+- 新增 `scripts/web-smoke.ps1`，自动启动 Web 服务并验证健康检查、工具清单、Agent 请求和审计 API。
+- 新增 `scripts/verify-package.ps1`，校验提交包关键文件完整性并拦截 `.git`、审计日志、缓存和 `dist/` 误入包。
+- 更新 `README.md` 和 `docs/SCRIPTS.md`，补充优化总表、自动报告、Web 冒烟和提交包校验入口。
+### Step 34: 完成风险评分、决策摘要、Dry-run 预案和诊断工具后端
+
+- 更新 `AgentResponse`，新增 `risk_score` 和 `decision_summary`，用于 CLI、Web 和审计展示。
+- Agent 审计事件新增风险评分、确认状态、决策摘要，并在中风险未确认时记录 Dry-run 预案。
+- `service.restart` 未确认时返回目标服务、预检查、拟操作、回滚建议和风险控制说明，不执行真实变更。
+- 新增 `src/safeops_agent/tools/diagnostics.py`，提供系统概览、资源、磁盘、端口、服务和日志诊断工具。
+- 更新工具注册表和自然语言路由，支持“诊断CPU和内存”“诊断端口占用”“诊断 nginx 服务”等请求。
+- 更新 Web API，使前端可接收风险评分和决策摘要。
+
+### Step 35: 完成亮点测试、Web 展示和演示文档同步
+
+- 扩展 `tests/test_agent.py`、`tests/test_audit.py`、`tests/test_registry.py` 和 `tests/test_mcp_service.py`，覆盖风险评分、决策摘要、Dry-run 预案、诊断路由、审计字段和 MCP 诊断工具。
+- 单元测试从 15 项扩展到 20 项，执行 `scripts/test.ps1` 验证全部通过。
+- 更新 Web 工作台，新增风险评分、决策摘要、诊断报告、Dry-run 预案和审计评分展示，并补充“诊断资源”“排查端口”等一键演示请求。
+- 更新 `docs/TODO_LIST.md`、`docs/FEATURE_HIGHLIGHTS_PLAN.md`、`docs/BEGINNER_OPERATION_MANUAL.md`、`docs/DEMO_SCRIPT.md`、`docs/TEST_PLAN_AND_REPORT.md`、`docs/COMPLETION_MATRIX.md` 和 `docs/DEMO_ASSETS.md`，同步新增亮点和 20 项测试状态。
+### Step 36: 完成本轮优化最终验收和提交包校验
+
+- 执行 `scripts/test.ps1`：通过 20 项单元测试。
+- 执行 `scripts/acceptance.ps1`：通过工具清单、低风险查询、中风险确认、Dry-run 预案、高风险拦截和审计日志检查。
+- 执行 `scripts/web-smoke.ps1`：通过 Web 健康检查、工具清单、Agent 请求和审计 API 冒烟测试。
+- 修正 `scripts/verify-package.ps1`，统一 zip 条目路径分隔符，并把诊断模块、本轮自动化脚本和亮点文档纳入必检项。
+- 修正 `scripts/package.ps1`，使用干净暂存目录打包，排除 `.git`、`dist`、`data/audit.log`、`__pycache__` 和 `.pyc`。
+- 执行 `scripts/package.ps1` 和 `scripts/verify-package.ps1`：成功生成并校验 `dist/cnsoftbei-submission.zip`，共 56 个条目。
+- 修正 `scripts/report.ps1` 的外部命令解析和 Git 信息降级逻辑，成功生成 `dist/acceptance-report.md`。

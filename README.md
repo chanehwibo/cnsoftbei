@@ -19,6 +19,8 @@
 - [初赛提交说明](docs/INITIAL_SUBMISSION.md)
 - [赛题要求完成度矩阵](docs/COMPLETION_MATRIX.md)
 - [麒麟系统实机验证清单](docs/KYLIN_VALIDATION_CHECKLIST.md)
+- [后续完善 TODO List](docs/TODO_LIST.md)
+- [功能完善与亮点优化总表](docs/FEATURE_HIGHLIGHTS_PLAN.md)
 - [答辩演示脚本](docs/DEMO_SCRIPT.md)
 - [开发脚本说明](docs/SCRIPTS.md)
 
@@ -50,6 +52,24 @@ powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\package.ps1
+```
+
+生成自动验收报告：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\report.ps1
+```
+
+运行 Web 冒烟测试：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
+```
+
+校验提交包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 ```
 审计日志默认写入：
 

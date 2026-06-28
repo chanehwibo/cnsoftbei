@@ -18,6 +18,22 @@ class RegistryTest(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(set(tools)))
 
+    def test_diagnostic_tools_are_registered(self):
+        tools = build_registry()
+
+        expected = {
+            "diagnostics.overview",
+            "diagnostics.resources",
+            "diagnostics.disk",
+            "diagnostics.network_ports",
+            "diagnostics.service",
+            "diagnostics.logs",
+        }
+        self.assertTrue(expected.issubset(set(tools)))
+        for name in expected:
+            self.assertEqual(tools[name].category, "diagnostics")
+            self.assertEqual(tools[name].risk.value, "LOW")
+
     def test_tools_have_categories(self):
         for tool in build_registry().values():
             self.assertTrue(tool.category)

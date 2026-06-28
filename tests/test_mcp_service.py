@@ -10,9 +10,19 @@ class McpToolServiceTest(unittest.TestCase):
 
         self.assertIn("system.info", names)
         self.assertIn("service.restart", names)
+        self.assertIn("diagnostics.resources", names)
+        self.assertIn("diagnostics.network_ports", names)
         for tool in tools:
             self.assertIn("inputSchema", tool)
             self.assertIn("annotations", tool)
+
+    def test_calls_diagnostic_tool(self):
+        result = McpToolService().call_tool("diagnostics.resources", {})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["risk"], "LOW")
+        self.assertFalse(result["requires_confirmation"])
+        self.assertIn("diagnosis", result["data"])
 
     def test_blocks_medium_risk_without_confirmation(self):
         result = McpToolService().call_tool("service.restart", {"service": "nginx"})

@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from safeops_agent.config import load_tools_config
 
+from .diagnostics import (
+    diagnose_disk,
+    diagnose_logs,
+    diagnose_network_ports,
+    diagnose_overview,
+    diagnose_resources,
+    diagnose_service,
+)
 from .models import RiskLevel, ToolSpec
 from .system import (
     get_resource_usage,
@@ -112,6 +120,51 @@ def build_registry() -> dict[str, ToolSpec]:
             handler=query_package,
             parameters={"package": {"type": "string"}},
             category="package",
+        ),
+        ToolSpec(
+            name="diagnostics.overview",
+            description="生成系统概览诊断报告",
+            risk=RiskLevel.LOW,
+            handler=diagnose_overview,
+            category="diagnostics",
+        ),
+        ToolSpec(
+            name="diagnostics.resources",
+            description="诊断 CPU、内存和磁盘资源风险",
+            risk=RiskLevel.LOW,
+            handler=diagnose_resources,
+            category="diagnostics",
+        ),
+        ToolSpec(
+            name="diagnostics.disk",
+            description="诊断磁盘空间和挂载点风险",
+            risk=RiskLevel.LOW,
+            handler=diagnose_disk,
+            category="diagnostics",
+        ),
+        ToolSpec(
+            name="diagnostics.network_ports",
+            description="诊断端口占用和监听状态",
+            risk=RiskLevel.LOW,
+            handler=diagnose_network_ports,
+            parameters={"limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+            category="diagnostics",
+        ),
+        ToolSpec(
+            name="diagnostics.service",
+            description="诊断服务可用性问题",
+            risk=RiskLevel.LOW,
+            handler=diagnose_service,
+            parameters={"service": {"type": "string"}},
+            category="diagnostics",
+        ),
+        ToolSpec(
+            name="diagnostics.logs",
+            description="诊断最近系统错误日志",
+            risk=RiskLevel.LOW,
+            handler=diagnose_logs,
+            parameters={"lines": {"type": "integer", "minimum": 10, "maximum": 500}},
+            category="diagnostics",
         ),
         ToolSpec(
             name="service.restart",

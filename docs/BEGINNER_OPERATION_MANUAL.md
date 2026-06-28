@@ -85,7 +85,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test.ps1
 成功时会看到：
 
 ```text
-Ran 15 tests
+Ran 20 tests
 OK
 ```
 
@@ -520,3 +520,80 @@ git status --short
 ```text
 本项目把操作系统运维能力封装成 MCP 风格安全工具，让用户通过自然语言完成系统查询和受控操作；系统通过意图过滤、工具白名单、参数校验、风险分级、确认机制和审计日志，防止大模型误操作。
 ```
+
+## 12. 本轮新增亮点演示
+
+本轮新增了 4 个适合答辩展示的亮点：风险评分、决策摘要、Dry-run 预案和故障诊断。
+
+### 12.1 诊断 CPU 和内存异常
+
+```powershell
+python -m safeops_agent.cli "诊断 CPU 和内存异常" --json
+```
+
+重点观察字段：
+
+```json
+{
+  "tool": "diagnostics.resources",
+  "risk_score": 10,
+  "data": {
+    "diagnosis": {
+      "possible_causes": [],
+      "recommended_actions": []
+    }
+  }
+}
+```
+
+讲解词：Agent 不只是返回系统指标，还会把指标组织成诊断报告，给出可能原因和建议动作。
+
+### 12.2 排查端口占用问题
+
+```powershell
+python -m safeops_agent.cli "排查端口占用问题" --json
+```
+
+重点观察：`tool` 应为 `diagnostics.network_ports`，返回内容包含监听端口证据和端口排查建议。
+
+### 12.3 查看中风险 Dry-run 预案
+
+```powershell
+python -m safeops_agent.cli "重启 nginx 服务" --json
+```
+
+重点观察字段：
+
+```json
+{
+  "risk": "MEDIUM",
+  "risk_score": 65,
+  "requires_confirmation": true,
+  "decision_summary": "...",
+  "data": {
+    "dry_run_plan": {
+      "pre_checks": [],
+      "planned_steps": [],
+      "risk_controls": []
+    }
+  }
+}
+```
+
+讲解词：系统不会在未确认时重启服务，而是先给出预检查、拟操作、回滚建议和风险控制。
+
+### 12.4 Web 工作台新增展示点
+
+启动 Web：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\web.ps1
+```
+
+打开：
+
+```text
+http://127.0.0.1:8765
+```
+
+按顺序点击：`诊断资源`、`排查端口`、`重启服务`、`高风险拦截`。页面顶部会展示最近工具、风险等级、风险评分、确认状态和决策摘要；消息区会展示诊断报告或 Dry-run 预案；右侧审计区会展示风险分和决策摘要。

@@ -89,7 +89,7 @@ python -m unittest discover -s tests
 当前测试结果：
 
 ```text
-Ran 15 tests
+Ran 20 tests
 OK
 ```
 
@@ -130,3 +130,15 @@ python -m safeops_agent.cli "覆盖 /etc/passwd" --json
 - Web 工作台完成后需要增加接口层测试。
 - 接入真实 MCP SDK 后需要补充协议兼容测试。
 - 接入大模型后需要补充提示注入和模型误调用测试。
+
+## 本轮新增亮点测试覆盖
+
+当前自动化测试扩展到 20 项，新增覆盖范围如下：
+
+- Agent 响应包含 `risk_score` 和 `decision_summary`。
+- 高风险意图拒绝时返回高风险评分和拒绝决策摘要。
+- 中风险 `service.restart` 未确认时返回 `dry_run_plan`。
+- 自然语言“诊断 CPU 和内存异常”路由到 `diagnostics.resources`。
+- 自然语言“排查端口占用问题”路由到 `diagnostics.network_ports`。
+- 审计日志写入风险评分、决策摘要和 Dry-run 预案。
+- MCP 工具清单包含诊断工具，且诊断工具可通过 MCP facade 调用。

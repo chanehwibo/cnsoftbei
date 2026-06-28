@@ -28,6 +28,10 @@ button {
   cursor: pointer;
 }
 
+button:hover {
+  filter: brightness(0.96);
+}
+
 button.secondary {
   background: #fff;
   color: #1f2937;
@@ -37,7 +41,7 @@ button.secondary {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 360px;
+  grid-template-columns: 240px minmax(0, 1fr) 380px;
 }
 
 .sidebar,
@@ -73,16 +77,19 @@ button.secondary {
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
 }
 
-h1 {
+h1,
+h2 {
   font-size: 18px;
 }
 
-h2 {
-  font-size: 18px;
+h3 {
+  font-size: 14px;
+  margin-bottom: 8px;
 }
 
 p {
@@ -119,7 +126,7 @@ p {
 
 .status-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -130,6 +137,10 @@ p {
   border-radius: 8px;
   padding: 14px;
   min-height: 78px;
+}
+
+.metric.decision {
+  grid-column: span 2;
 }
 
 .metric span {
@@ -143,6 +154,25 @@ p {
   margin-top: 8px;
   font-size: 18px;
   overflow-wrap: anywhere;
+}
+
+.metric.decision strong {
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 58px;
+  overflow: auto;
+}
+
+.risk-text.LOW {
+  color: #166534;
+}
+
+.risk-text.MEDIUM {
+  color: #9a3412;
+}
+
+.risk-text.HIGH {
+  color: #be123c;
 }
 
 .console {
@@ -160,7 +190,7 @@ p {
   display: grid;
   align-content: start;
   gap: 12px;
-  max-height: calc(100vh - 230px);
+  max-height: calc(100vh - 250px);
 }
 
 .message {
@@ -185,7 +215,82 @@ p {
   border-color: #fed7aa;
 }
 
-.message pre {
+.message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.message-body {
+  margin-top: 8px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.decision-summary,
+.audit-summary {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid #1f6feb;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.result-panel {
+  margin-top: 10px;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.diagnosis-panel {
+  border-left: 3px solid #16a34a;
+}
+
+.dry-run-panel {
+  border-left: 3px solid #f97316;
+}
+
+.result-list {
+  margin-top: 10px;
+}
+
+.result-list strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.result-list ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rollback {
+  color: #344054;
+  line-height: 1.5;
+}
+
+.raw-data {
+  margin-top: 10px;
+}
+
+.raw-data summary {
+  cursor: pointer;
+  color: #475467;
+  font-size: 13px;
+}
+
+.message pre,
+.raw-data pre {
   margin: 10px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -238,6 +343,22 @@ p {
   padding: 10px;
   background: #fbfcfe;
   font-size: 13px;
+  line-height: 1.45;
+}
+
+.tool-item.diagnostic-tool {
+  border-left: 3px solid #16a34a;
+}
+
+.tool-item strong,
+.audit-item strong {
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: #667085;
+  font-size: 12px;
+  margin: 4px 0;
 }
 
 .tag {
@@ -248,21 +369,31 @@ p {
   border: 1px solid #c9d3df;
   color: #344054;
   margin-left: 6px;
+  margin-top: 4px;
 }
 
 .tag.LOW {
   border-color: #86efac;
   color: #166534;
+  background: #f0fdf4;
 }
 
 .tag.MEDIUM {
   border-color: #fdba74;
   color: #9a3412;
+  background: #fff7ed;
 }
 
 .tag.HIGH {
   border-color: #fda4af;
   color: #be123c;
+  background: #fff1f2;
+}
+
+.tag.score {
+  border-color: #c7d2fe;
+  color: #3730a3;
+  background: #eef2ff;
 }
 
 @media (max-width: 1100px) {
@@ -289,6 +420,10 @@ p {
   .inspector {
     border: 0;
     border-bottom: 1px solid #dbe2ea;
+  }
+
+  .metric.decision {
+    grid-column: auto;
   }
 
   .status-grid,
