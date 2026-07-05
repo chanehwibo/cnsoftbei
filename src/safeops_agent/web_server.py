@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hmac
 import json
+import os
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from safeops_agent.agent import SafeOpsAgent
 from safeops_agent.audit.logger import AuditLogger
@@ -17,30 +21,160 @@ WEB_ROOT = PROJECT_ROOT / "web"
 APP_CONFIG = load_app_config()
 AUDIT_PATH = resolve_project_path(APP_CONFIG["audit_log"])
 
+_audit_logger = AuditLogger(AUDIT_PATH, source="web")
+_agent = SafeOpsAgent(audit_logger=_audit_logger)
+_agent_lock = threading.Lock()
+_mcp = McpToolService()
+
+API_TOKEN: str = os.environ.get("SAFEOPS_TOKEN", "")
+RATE_LIMIT_MAX: int = 30
+RATE_LIMIT_WINDOW: int = 60
+MAX_BODY_SIZE: int = 65536
+ACCESS_LOG: bool = os.environ.get("SAFEOPS_ACCESS_LOG", "0") == "1"
+CORS_ORIGIN: str = os.environ.get("SAFEOPS_CORS_ORIGIN", "")
+
+
+class _RateLimiter:
+    def __init__(self, max_requests: int = RATE_LIMIT_MAX, window: int = RATE_LIMIT_WINDOW) -> None:
+        self._max = max_requests
+        self._window = window
+        self._lock = threading.Lock()
+        self._buckets: dict[str, list[float]] = {}
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            timestamps = self._buckets.get(key, [])
+            timestamps = [t for t in timestamps if now - t < self._window]
+            if len(timestamps) >= self._max:
+                self._buckets[key] = timestamps
+                return False
+            timestamps.append(now)
+            self._buckets[key] = timestamps
+            if len(self._buckets) > 1000:
+                self._buckets = {
+                    k: v for k, v in self._buckets.items()
+                    if v and now - v[-1] < self._window
+                }
+            return True
+
+
+_limiter = _RateLimiter()
+
+
+class _SSEBroadcaster:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._events: list[threading.Event] = []
+
+    def subscribe(self) -> threading.Event:
+        event = threading.Event()
+        with self._lock:
+            self._events.append(event)
+        return event
+
+    def unsubscribe(self, event: threading.Event) -> None:
+        with self._lock:
+            try:
+                self._events.remove(event)
+            except ValueError:
+                pass
+
+    def notify(self) -> None:
+        with self._lock:
+            for event in self._events:
+                event.set()
+
+
+_sse = _SSEBroadcaster()
+_shutdown_event = threading.Event()
+
 
 class SafeOpsWebHandler(BaseHTTPRequestHandler):
     server_version = "SafeOpsWeb/0.1"
+
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-XSS-Protection", "1; mode=block")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        if CORS_ORIGIN:
+            self.send_header("Access-Control-Allow-Origin", CORS_ORIGIN)
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        super().end_headers()
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _check_auth(self, allow_query_token: bool = False) -> bool:
+        if not API_TOKEN:
+            return True
+        auth = self.headers.get("Authorization", "")
+        expected = f"Bearer {API_TOKEN}"
+        if hmac.compare_digest(auth, expected):
+            return True
+        if allow_query_token:
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            token = params.get("token", [""])[0]
+            if token and hmac.compare_digest(token, API_TOKEN):
+                return True
+        self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+        return False
+
+    def _check_rate_limit(self) -> bool:
+        client_ip = self.client_address[0]
+        if _limiter.allow(client_ip):
+            return True
+        self._json({"ok": False, "error": "rate limit exceeded"}, HTTPStatus.TOO_MANY_REQUESTS)
+        return False
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/health":
             self._json({"ok": True, "service": "safeops-web"})
             return
+        if not path.startswith("/api/"):
+            self._serve_static(path)
+            return
+        if path == "/api/events":
+            if not self._check_auth(allow_query_token=True) or not self._check_rate_limit():
+                return
+            self._serve_sse()
+            return
+        if not self._check_auth() or not self._check_rate_limit():
+            return
         if path == "/api/tools":
-            self._json({"ok": True, "tools": McpToolService().list_tools()})
+            self._json({"ok": True, "tools": _mcp.list_tools()})
             return
         if path == "/api/audit":
-            self._json({"ok": True, "events": AuditLogger(AUDIT_PATH).recent(20)})
+            self._json({"ok": True, "events": _audit_logger.recent(20)})
             return
-        self._serve_static(path)
+        if path == "/api/audit/export":
+            self._serve_audit_export()
+            return
+        self._json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
+        if not self._check_auth() or not self._check_rate_limit():
+            return
         path = urlparse(self.path).path
         if path != "/api/agent":
             self._json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
             return
         try:
-            body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except (ValueError, TypeError):
+            self._json({"ok": False, "error": "invalid content-length"}, HTTPStatus.BAD_REQUEST)
+            return
+        if content_length > MAX_BODY_SIZE:
+            self._json({"ok": False, "error": "request body too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            return
+        try:
+            body = self.rfile.read(content_length)
             payload = json.loads(body.decode("utf-8") or "{}")
         except (ValueError, UnicodeDecodeError):
             self._json({"ok": False, "error": "invalid json"}, HTTPStatus.BAD_REQUEST)
@@ -52,8 +186,10 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "request is required"}, HTTPStatus.BAD_REQUEST)
             return
 
-        agent = SafeOpsAgent(audit_logger=AuditLogger(AUDIT_PATH, source="web"))
-        response = agent.handle(request, confirmed=confirmed)
+        agent = _agent
+        with _agent_lock:
+            response = agent.handle(request, confirmed=confirmed)
+        _sse.notify()
         self._json(
             {
                 "ok": response.ok,
@@ -69,14 +205,65 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, format: str, *args) -> None:
-        return
+        if ACCESS_LOG:
+            client_ip = self.client_address[0]
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {client_ip} {format % args}")
+
+    def _serve_sse(self) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        event = _sse.subscribe()
+        try:
+            while not _shutdown_event.is_set():
+                event.wait(timeout=15)
+                if _shutdown_event.is_set():
+                    break
+                if event.is_set():
+                    event.clear()
+                    recent = _audit_logger.recent(1)
+                    data = json.dumps(recent[-1] if recent else {}, ensure_ascii=False)
+                    self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                else:
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            _sse.unsubscribe(event)
+
+    def _serve_audit_export(self) -> None:
+        events = _audit_logger.recent(200)
+        report = {
+            "report": "SafeOps 审计报告",
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "total_events": len(events),
+            "events": events,
+            "summary": {
+                "allowed": sum(1 for e in events if e.get("allowed")),
+                "denied": sum(1 for e in events if not e.get("allowed", True)),
+                "high_risk": sum(1 for e in events if e.get("risk") == "HIGH"),
+                "medium_risk": sum(1 for e in events if e.get("risk") == "MEDIUM"),
+                "low_risk": sum(1 for e in events if e.get("risk") == "LOW"),
+            },
+        }
+        data = json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Disposition", "attachment; filename=safeops_audit_report.json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_static(self, path: str) -> None:
         if path == "/":
             path = "/index.html"
         relative = path.lstrip("/")
         target = (WEB_ROOT / relative).resolve()
-        if not str(target).startswith(str(WEB_ROOT.resolve())) or not target.is_file():
+        if not target.is_relative_to(WEB_ROOT.resolve()) or not target.is_file():
             self._json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
             return
         content_type = {
@@ -89,6 +276,10 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        if target.suffix in (".css", ".js"):
+            self.send_header("Cache-Control", "public, max-age=3600")
+        else:
+            self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(data)
 
@@ -111,6 +302,8 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        _shutdown_event.set()
+        _sse.notify()
         server.server_close()
     return 0
 

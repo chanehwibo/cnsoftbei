@@ -290,7 +290,24 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
 
 document.querySelector("#refreshAudit").addEventListener("click", loadAudit);
 
+function connectSSE() {
+  let url = "/api/events";
+  const meta = document.querySelector('meta[name="safeops-token"]');
+  if (meta && meta.content) {
+    url += "?token=" + encodeURIComponent(meta.content);
+  }
+  const source = new EventSource(url);
+  source.onmessage = function () {
+    loadAudit();
+  };
+  source.onerror = function () {
+    source.close();
+    setTimeout(connectSSE, 5000);
+  };
+}
+
 loadHealth();
 loadTools();
 loadAudit();
+connectSSE();
 addMessage("agent", "工作台已就绪");

@@ -32,10 +32,18 @@ button:hover {
   filter: brightness(0.96);
 }
 
-button.secondary {
+button.secondary,
+a.secondary {
+  display: inline-block;
+  text-decoration: none;
   background: #fff;
   color: #1f2937;
-  border-color: #c9d3df;
+  border: 1px solid #c9d3df;
+  border-radius: 6px;
+  padding: 9px 12px;
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
 }
 
 .app-shell {

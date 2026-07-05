@@ -1,0 +1,6 @@
+llm_enabled: true
+llm_provider: deepseek
+llm_model: deepseek-v4-pro
+llm_api_key: ""
+llm_base_url: https://api.deepseek.com/v1
+llm_timeout: 30

@@ -9,9 +9,9 @@ from safeops_agent.tools.registry import build_registry
 class McpToolService:
     """Small MCP-style facade for listing and invoking registered tools."""
 
-    def __init__(self) -> None:
-        self.tools = build_registry()
-        self.policy = PolicyEngine()
+    def __init__(self, tools: dict | None = None, policy: PolicyEngine | None = None) -> None:
+        self.tools = tools if tools is not None else build_registry()
+        self.policy = policy if policy is not None else PolicyEngine()
 
     def list_tools(self) -> list[dict[str, Any]]:
         return [
@@ -51,7 +51,18 @@ class McpToolService:
                 "error": decision.reason,
                 "data": {},
             }
-        result = tool.handler(args)
+        try:
+            result = tool.handler(args)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "summary": None,
+                "data": {},
+                "error": f"tool execution error: {exc}",
+                "error_code": "TOOL_EXECUTION_ERROR",
+                "risk": decision.risk.value,
+                "requires_confirmation": False,
+            }
         return {
             "ok": result.ok,
             "summary": result.summary,

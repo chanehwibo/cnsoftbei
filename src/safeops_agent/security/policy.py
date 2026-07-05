@@ -58,7 +58,7 @@ class PolicyEngine:
     )
     dangerous_actions = ("删除", "清空", "覆盖", "格式化", "修改权限", "递归", "写入", "移动")
     sensitive_paths = ("/", "/etc", "/boot", "/usr", "/bin", "/sbin", "/var/lib", "/root", "c:\\windows")
-    argument_forbidden_chars = set(";&|`$<>")
+    argument_forbidden_chars = set(";&|`$<>") | {"\n", "\r", "\t", "\x00"}
 
     def __init__(self, config_path: Path | str | None = None) -> None:
         config = load_policy_config() if config_path is None else {}
@@ -73,14 +73,25 @@ class PolicyEngine:
 
     def evaluate_intent(self, text: str) -> PolicyDecision | None:
         normalized = text.replace(" ", "").lower()
+        lower_text = text.lower()
         for keyword in self.active_destructive_keywords:
-            if keyword.replace(" ", "").lower() in normalized:
-                return PolicyDecision(
-                    allowed=False,
-                    risk=RiskLevel.HIGH,
-                    reason=f"命中高风险意图关键词：{keyword}",
-                    error_code="INTENT_HIGH_RISK_KEYWORD",
-                )
+            kw_compact = keyword.replace(" ", "").lower()
+            if kw_compact.isascii():
+                if self._ascii_keyword_match(lower_text, keyword.lower()):
+                    return PolicyDecision(
+                        allowed=False,
+                        risk=RiskLevel.HIGH,
+                        reason=f"命中高风险意图关键词：{keyword}",
+                        error_code="INTENT_HIGH_RISK_KEYWORD",
+                    )
+            else:
+                if kw_compact in normalized:
+                    return PolicyDecision(
+                        allowed=False,
+                        risk=RiskLevel.HIGH,
+                        reason=f"命中高风险意图关键词：{keyword}",
+                        error_code="INTENT_HIGH_RISK_KEYWORD",
+                    )
         path = self._matched_sensitive_path(text)
         if path and any(action in text for action in self.dangerous_actions):
             return PolicyDecision(
@@ -90,6 +101,19 @@ class PolicyEngine:
                 error_code="INTENT_SENSITIVE_PATH",
             )
         return None
+
+    def _ascii_keyword_match(self, text: str, keyword: str) -> bool:
+        start = 0
+        while True:
+            pos = text.find(keyword, start)
+            if pos == -1:
+                return False
+            before_ok = pos == 0 or not text[pos - 1].isalnum()
+            end = pos + len(keyword)
+            after_ok = end >= len(text) or not text[end].isalnum()
+            if before_ok and after_ok:
+                return True
+            start = pos + 1
 
     def evaluate_tool(
         self,
@@ -167,7 +191,7 @@ class PolicyEngine:
         for path in self.active_sensitive_paths:
             normalized = path.replace(" ", "").lower()
             if normalized == "/":
-                if "/" == compact or compact.startswith("/ "):
+                if compact == "/" or compact.endswith("/") or "删除/" in compact or "覆盖/" in compact or "清空/" in compact:
                     return path
                 continue
             if normalized in compact:

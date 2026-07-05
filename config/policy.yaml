@@ -29,6 +29,11 @@ destructive_keywords:
   - 关机
   - 重启系统
   - 重装系统
+  - ":(){:|:&};:"
+  - halt
+  - init 0
+  - init 6
+  - 删库
 sensitive_paths:
   - /
   - /etc

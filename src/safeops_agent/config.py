@@ -51,6 +51,10 @@ def load_tools_config() -> dict[str, Any]:
     return load_simple_yaml(CONFIG_DIR / "tools.yaml")
 
 
+def load_llm_config() -> dict[str, Any]:
+    return load_simple_yaml(CONFIG_DIR / "llm.yaml")
+
+
 def resolve_project_path(value: str | Path) -> Path:
     path = Path(value)
     if path.is_absolute():
@@ -59,6 +63,8 @@ def resolve_project_path(value: str | Path) -> Path:
 
 
 def _parse_scalar(value: str) -> Any:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
     lowered = value.lower()
     if lowered == "true":
         return True
