@@ -104,6 +104,36 @@ function appendDryRunPlan(container, plan) {
   container.append(panel);
 }
 
+function appendReasoningChain(container, chain) {
+  if (!Array.isArray(chain) || chain.length === 0) {
+    return;
+  }
+  const panel = document.createElement("section");
+  panel.className = "result-panel chain-panel";
+
+  const title = document.createElement("h3");
+  title.textContent = "思维链审计";
+  panel.append(title);
+
+  const list = document.createElement("ol");
+  list.className = "chain-list";
+  for (const step of chain) {
+    const li = document.createElement("li");
+    li.className = `chain-step stage-${step.stage || ""}`;
+
+    const head = document.createElement("strong");
+    head.textContent = step.title || step.stage || `步骤 ${step.step}`;
+    const detail = document.createElement("div");
+    detail.className = "chain-detail";
+    detail.textContent = step.detail || "";
+
+    li.append(head, detail);
+    list.append(li);
+  }
+  panel.append(list);
+  container.append(panel);
+}
+
 function appendStructuredData(item, data) {
   if (!data) {
     return;
@@ -162,6 +192,9 @@ function addMessage(role, text, detail = {}) {
     item.append(summary);
   }
 
+  if (detail.reasoningChain) {
+    appendReasoningChain(item, detail.reasoningChain);
+  }
   appendStructuredData(item, detail.data);
   messages.append(item);
   messages.scrollTop = messages.scrollHeight;
@@ -200,6 +233,7 @@ async function sendRequest(text) {
     requiresConfirmation: result.requires_confirmation,
     decisionSummary: result.decision_summary,
     data: result.data,
+    reasoningChain: result.reasoning_chain,
   });
   await loadAudit();
 }

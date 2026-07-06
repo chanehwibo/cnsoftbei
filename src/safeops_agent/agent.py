@@ -11,6 +11,30 @@ from safeops_agent.tools.models import RiskLevel, ToolResult
 from safeops_agent.tools.registry import build_registry
 
 
+class _ReasoningChain:
+    """按顺序累积可回放的思维链步骤。"""
+
+    def __init__(self) -> None:
+        self.steps: list[dict[str, Any]] = []
+
+    def add(
+        self,
+        stage: str,
+        title: str,
+        detail: str,
+        inputs: dict[str, Any] | None = None,
+        outputs: dict[str, Any] | None = None,
+    ) -> None:
+        self.steps.append({
+            "step": len(self.steps) + 1,
+            "stage": stage,
+            "title": title,
+            "detail": detail,
+            "inputs": inputs or {},
+            "outputs": outputs or {},
+        })
+
+
 @dataclass(frozen=True)
 class AgentResponse:
     ok: bool
@@ -21,6 +45,7 @@ class AgentResponse:
     requires_confirmation: bool = False
     risk_score: int | None = None
     decision_summary: str | None = None
+    reasoning_chain: list[dict[str, Any]] | None = None
 
 
 class SafeOpsAgent:
@@ -37,6 +62,8 @@ class SafeOpsAgent:
 
     def handle(self, text: str, confirmed: bool = False) -> AgentResponse:
         started = time.perf_counter()
+        chain = _ReasoningChain()
+        original_text = text
         if len(text) > self.MAX_INPUT_LENGTH:
             return AgentResponse(
                 ok=False,
@@ -45,42 +72,87 @@ class SafeOpsAgent:
                 risk_score=5,
                 decision_summary="输入超长，已拒绝处理。",
             )
+
+        # 步骤 1：上下文指代解析
         text = self._resolve_context(text)
+        if text != original_text:
+            chain.add("context_resolution", "上下文指代解析",
+                      f"将指代词按最近会话对象还原：last_service=`{self._last_service}`",
+                      inputs={"raw": original_text}, outputs={"resolved": text})
+        else:
+            chain.add("context_resolution", "上下文指代解析", "无指代词，输入原样进入意图筛查",
+                      inputs={"raw": original_text}, outputs={"resolved": text})
+
+        # 步骤 2：意图风险筛查（护栏第一层）
         intent_decision = self.policy.evaluate_intent(text)
         if intent_decision is not None:
+            chain.add("intent_screening", "意图风险筛查",
+                      f"命中高风险意图，直接拒绝：{intent_decision.reason}",
+                      outputs={"allowed": False, "risk": intent_decision.risk.value,
+                               "error_code": intent_decision.error_code})
             risk_score = self._risk_score(intent_decision)
             decision_summary = self._decision_summary(None, intent_decision, risk_score)
-            self._audit(text, None, {}, intent_decision, None, started, risk_score, decision_summary)
+            self._audit(text, None, {}, intent_decision, None, started, risk_score,
+                        decision_summary, reasoning_chain=chain.steps)
             return AgentResponse(
                 ok=False,
                 message=f"已拒绝执行：{intent_decision.reason}",
                 risk=intent_decision.risk,
                 risk_score=risk_score,
                 decision_summary=decision_summary,
+                reasoning_chain=chain.steps,
             )
+        chain.add("intent_screening", "意图风险筛查", "未命中高风险关键词与敏感路径，进入工具选择",
+                  outputs={"allowed": True})
 
-        tool_name, args, intent_source = self._smart_select_tool(text)
+        # 步骤 3：工具选择（LLM 意图理解，失败回退规则匹配）
+        tool_name, args, intent_source, llm_reasoning = self._smart_select_tool(text)
+        source_label = "大模型意图理解" if intent_source == "llm" else "规则关键词匹配"
         if tool_name is None:
+            chain.add("tool_selection", "工具选择", f"{source_label}未匹配到可执行工具",
+                      outputs={"tool": None, "source": intent_source})
             decision = PolicyDecision(allowed=True, risk=RiskLevel.LOW, reason="未匹配到工具")
             risk_score = 5
             decision_summary = self._decision_summary(None, decision, risk_score)
-            self._audit(text, None, {}, decision, None, started, risk_score, decision_summary, intent_source=intent_source)
+            self._audit(text, None, {}, decision, None, started, risk_score,
+                        decision_summary, intent_source=intent_source, reasoning_chain=chain.steps)
             return AgentResponse(
                 ok=False,
                 message="暂未匹配到可执行运维工具。可以尝试：查看系统信息、查看CPU和内存、查看进程、查看错误日志、查询 nginx 服务状态、查看监听端口、诊断CPU和内存。",
                 risk=RiskLevel.LOW,
                 risk_score=risk_score,
                 decision_summary=decision_summary,
+                reasoning_chain=chain.steps,
             )
+        detail = f"{source_label}选定工具 `{tool_name}`，参数 {args}"
+        if intent_source == "llm" and llm_reasoning:
+            detail += f"；模型推理：{llm_reasoning}"
+        chain.add("tool_selection", "工具选择", detail,
+                  outputs={"tool": tool_name, "args": args, "source": intent_source,
+                           "llm_reasoning": llm_reasoning or None})
 
+        # 步骤 4：风险裁决（护栏第二层：等级 + 参数 + 确认）
         tool = self.tools[tool_name]
         decision = self.policy.evaluate_tool(tool, args=args, confirmed=confirmed)
         risk_score = self._risk_score(decision)
         decision_summary = self._decision_summary(tool_name, decision, risk_score)
+        chain.add("risk_adjudication", "风险裁决",
+                  f"工具风险等级 {decision.risk.value}，评分 {risk_score}/100，"
+                  f"{'允许' if decision.allowed else '拒绝'}执行：{decision.reason}",
+                  outputs={"allowed": decision.allowed, "risk": decision.risk.value,
+                           "risk_score": risk_score,
+                           "requires_confirmation": decision.requires_confirmation,
+                           "error_code": decision.error_code, "confirmed": confirmed})
         if not decision.allowed:
             dry_run_plan = self._dry_run_plan(tool_name, args) if decision.requires_confirmation else None
             data = {"dry_run_plan": dry_run_plan} if dry_run_plan else None
-            self._audit(text, tool_name, args, decision, None, started, risk_score, decision_summary, dry_run_plan, intent_source=intent_source)
+            note = "需人工确认，已生成 dry-run 预演计划，未执行任何真实变更" if decision.requires_confirmation \
+                else "决策为拒绝，流程终止，未执行"
+            chain.add("execution", "执行阶段", note,
+                      outputs={"executed": False, "dry_run": dry_run_plan is not None})
+            self._audit(text, tool_name, args, decision, None, started, risk_score,
+                        decision_summary, dry_run_plan, intent_source=intent_source,
+                        reasoning_chain=chain.steps)
             return AgentResponse(
                 ok=False,
                 message=f"未执行 {tool_name}：{decision.reason}",
@@ -90,13 +162,18 @@ class SafeOpsAgent:
                 requires_confirmation=decision.requires_confirmation,
                 risk_score=risk_score,
                 decision_summary=decision_summary,
+                reasoning_chain=chain.steps,
             )
 
+        # 步骤 5：执行工具
         try:
             result = tool.handler(args)
         except Exception as exc:
             error_result = ToolResult(ok=False, summary="工具执行异常", error=str(exc))
-            self._audit(text, tool_name, args, decision, error_result, started, risk_score, decision_summary, intent_source=intent_source)
+            chain.add("execution", "执行阶段", f"工具执行抛出异常：{exc}",
+                      outputs={"executed": True, "ok": False})
+            self._audit(text, tool_name, args, decision, error_result, started, risk_score,
+                        decision_summary, intent_source=intent_source, reasoning_chain=chain.steps)
             return AgentResponse(
                 ok=False,
                 message=f"工具 {tool_name} 执行异常：{exc}",
@@ -104,9 +181,14 @@ class SafeOpsAgent:
                 risk=decision.risk,
                 risk_score=risk_score,
                 decision_summary=decision_summary,
+                reasoning_chain=chain.steps,
             )
+        chain.add("execution", "执行阶段",
+                  f"工具执行{'成功' if result.ok else '失败'}：{result.summary}",
+                  outputs={"executed": True, "ok": result.ok, "summary": result.summary})
         self._update_context(tool_name, args)
-        self._audit(text, tool_name, args, decision, result, started, risk_score, decision_summary, intent_source=intent_source)
+        self._audit(text, tool_name, args, decision, result, started, risk_score,
+                    decision_summary, intent_source=intent_source, reasoning_chain=chain.steps)
         return AgentResponse(
             ok=result.ok,
             message=result.summary if result.ok else f"{result.summary}：{result.error}",
@@ -115,10 +197,15 @@ class SafeOpsAgent:
             data=result.data,
             risk_score=risk_score,
             decision_summary=decision_summary,
+            reasoning_chain=chain.steps,
         )
 
-    def _smart_select_tool(self, text: str) -> tuple[str | None, dict[str, Any], str]:
-        """先尝试 LLM 意图理解，失败则 fallback 到规则匹配。返回 (tool, args, source)。"""
+    def _smart_select_tool(self, text: str) -> tuple[str | None, dict[str, Any], str, str]:
+        """先尝试 LLM 意图理解，失败则 fallback 到规则匹配。
+
+        返回 (tool, args, source, reasoning)。reasoning 为 LLM 给出的思维链原文，
+        规则匹配时为空字符串。
+        """
         if not isinstance(self.llm, RuleBasedProvider):
             tool_descriptions = [
                 {
@@ -130,12 +217,12 @@ class SafeOpsAgent:
                 }
                 for t in self.tools.values()
             ]
-            tool_name, args, _reasoning = self.llm.select_tool(text, tool_descriptions)
+            tool_name, args, reasoning = self.llm.select_tool(text, tool_descriptions)
             if tool_name and tool_name in self.tools:
-                return tool_name, args, "llm"
+                return tool_name, args, "llm", reasoning
 
         tool_name, args = self._select_tool(text)
-        return tool_name, args, "rule"
+        return tool_name, args, "rule", ""
 
     def _select_tool(self, text: str) -> tuple[str | None, dict[str, Any]]:
         normalized = text.lower()
@@ -312,6 +399,7 @@ class SafeOpsAgent:
         decision_summary: str,
         dry_run_plan: dict[str, Any] | None = None,
         intent_source: str = "rule",
+        reasoning_chain: list[dict[str, Any]] | None = None,
     ) -> None:
         event = {
             "event_type": "agent.tool_call" if tool_name else "agent.intent",
@@ -332,4 +420,6 @@ class SafeOpsAgent:
         }
         if dry_run_plan is not None:
             event["dry_run_plan"] = dry_run_plan
+        if reasoning_chain is not None:
+            event["reasoning_chain"] = reasoning_chain
         self.audit.record(event)

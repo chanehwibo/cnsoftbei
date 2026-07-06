@@ -203,6 +203,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
                 "decision_summary": response.decision_summary,
                 "data": response.data,
                 "requires_confirmation": response.requires_confirmation,
+                "reasoning_chain": response.reasoning_chain,
             },
             HTTPStatus.OK if response.ok else HTTPStatus.ACCEPTED,
         )

@@ -264,6 +264,32 @@ p {
   border-left: 3px solid #f97316;
 }
 
+.chain-panel {
+  border-left: 3px solid #6366f1;
+}
+
+.chain-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.chain-step {
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chain-step strong {
+  color: #312e81;
+}
+
+.chain-detail {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
 .result-list {
   margin-top: 10px;
 }
