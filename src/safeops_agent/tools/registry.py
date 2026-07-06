@@ -11,6 +11,11 @@ from .diagnostics import (
     diagnose_service,
 )
 from .models import RiskLevel, ToolSpec
+from .operations import (
+    apply_managed_file,
+    list_managed_files,
+    rollback_managed_file,
+)
 from .system import (
     get_resource_usage,
     get_service_status,
@@ -25,6 +30,8 @@ from .system import (
     list_users,
     query_package,
     restart_service,
+    start_service,
+    stop_service,
 )
 
 
@@ -174,6 +181,49 @@ def build_registry() -> dict[str, ToolSpec]:
             parameters={"service": {"type": "string"}},
             required=["service"],
             category="service",
+        ),
+        ToolSpec(
+            name="service.start",
+            description="启动指定 systemd 服务（逆操作：service.stop）",
+            risk=RiskLevel.MEDIUM,
+            handler=start_service,
+            parameters={"service": {"type": "string"}},
+            required=["service"],
+            category="service",
+        ),
+        ToolSpec(
+            name="service.stop",
+            description="停止指定 systemd 服务（逆操作：service.start）",
+            risk=RiskLevel.MEDIUM,
+            handler=stop_service,
+            parameters={"service": {"type": "string"}},
+            required=["service"],
+            category="service",
+        ),
+        ToolSpec(
+            name="file.apply",
+            description="写入受管工作区文件，写入前自动快照，返回可回滚的快照 ID",
+            risk=RiskLevel.MEDIUM,
+            handler=apply_managed_file,
+            parameters={"name": {"type": "string"}, "content": {"type": "string"}},
+            required=["name", "content"],
+            category="operations",
+        ),
+        ToolSpec(
+            name="file.rollback",
+            description="按快照 ID 将受管文件恢复到写入前状态（真实逆操作）",
+            risk=RiskLevel.MEDIUM,
+            handler=rollback_managed_file,
+            parameters={"snapshot_id": {"type": "string"}},
+            required=["snapshot_id"],
+            category="operations",
+        ),
+        ToolSpec(
+            name="file.list_managed",
+            description="列出受管工作区文件与历史快照数量",
+            risk=RiskLevel.LOW,
+            handler=list_managed_files,
+            category="operations",
         ),
     ]
     disabled = set(load_tools_config().get("disabled_tools", []))

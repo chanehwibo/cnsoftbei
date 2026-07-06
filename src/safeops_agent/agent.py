@@ -363,11 +363,21 @@ class SafeOpsAgent:
         return f"{target}，风险等级 {decision.risk.value}，风险评分 {risk_score}/100，决策：{action}，原因：{decision.reason}。"
 
     def _dry_run_plan(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any] | None:
-        if tool_name != "service.restart":
-            return None
+        if tool_name in {"service.restart", "service.start", "service.stop"}:
+            return self._service_dry_run(tool_name, args)
+        if tool_name == "file.apply":
+            return self._file_apply_dry_run(args)
+        if tool_name == "file.rollback":
+            return self._file_rollback_dry_run(args)
+        return None
+
+    def _service_dry_run(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         service = str(args.get("service", "")).strip() or "未识别服务"
+        verb = {"service.restart": "重启", "service.start": "启动", "service.stop": "停止"}[tool_name]
+        inverse = {"service.restart": "重启前状态回退", "service.start": "service.stop 停止",
+                   "service.stop": "service.start 启动"}[tool_name]
         return {
-            "action": "service.restart",
+            "action": tool_name,
             "target": {"service": service},
             "pre_checks": [
                 f"查看 {service} 服务状态",
@@ -376,13 +386,57 @@ class SafeOpsAgent:
             ],
             "planned_steps": [
                 "记录当前服务状态和关键错误日志",
-                f"在用户显式确认后执行 {service} 服务重启流程",
-                "重启后再次检查服务状态、端口监听和错误日志",
+                f"在用户显式确认后对 {service} 执行{verb}流程",
+                f"{verb}后再次检查服务状态、端口监听和错误日志",
             ],
-            "rollback_suggestion": "如果服务重启后不可用，立即查看服务状态和日志，必要时恢复配置或回退到变更前版本。",
+            "rollback_suggestion": f"如果{verb}后服务不可用，可通过逆操作（{inverse}）回退，并查看状态与日志定位原因。",
             "risk_controls": [
                 "未确认前不执行真实变更",
                 "仅允许合法服务名参数",
+                "所有决策和结果写入审计日志",
+            ],
+        }
+
+    def _file_apply_dry_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        name = str(args.get("name", "")).strip() or "未指定文件"
+        size = len(str(args.get("content", "")).encode("utf-8"))
+        return {
+            "action": "file.apply",
+            "target": {"name": name, "bytes": size},
+            "pre_checks": [
+                "校验文件名合法性，限制在受管工作区内",
+                "确认写入内容大小未超上限",
+            ],
+            "planned_steps": [
+                f"写入前对 {name} 现有内容打快照",
+                f"在用户显式确认后写入 {name}（{size} 字节）",
+                "返回快照 ID，可随时一键回滚",
+            ],
+            "rollback_suggestion": "调用 file.rollback 并传入返回的 snapshot_id，即可将文件恢复到写入前状态（真实逆操作）。",
+            "risk_controls": [
+                "写入仅限受管工作区，禁止路径穿越",
+                "写入前强制快照，保证可回滚",
+                "所有决策和结果写入审计日志",
+            ],
+        }
+
+    def _file_rollback_dry_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        snapshot_id = str(args.get("snapshot_id", "")).strip() or "未指定快照"
+        return {
+            "action": "file.rollback",
+            "target": {"snapshot_id": snapshot_id},
+            "pre_checks": [
+                "校验 snapshot_id 合法性",
+                "确认快照记录与快照文件存在",
+            ],
+            "planned_steps": [
+                f"定位快照 {snapshot_id} 对应的受管文件",
+                "在用户显式确认后将文件恢复到快照时的内容（新建文件则删除）",
+            ],
+            "rollback_suggestion": "回滚本身即逆操作；如需再次前进，可重新执行 file.apply。",
+            "risk_controls": [
+                "恢复目标限定受管工作区",
+                "快照缺失时安全失败",
                 "所有决策和结果写入审计日志",
             ],
         }

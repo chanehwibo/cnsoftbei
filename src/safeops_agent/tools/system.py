@@ -111,6 +111,38 @@ def restart_service(_: dict[str, Any]) -> ToolResult:
     )
 
 
+def _service_lifecycle(args: dict[str, Any], action: str, inverse: str) -> ToolResult:
+    """服务生命周期动作（start/stop）：跨平台守护 + 逆操作建议。"""
+    service = str(args.get("service", "")).strip()
+    if not service:
+        return ToolResult(ok=False, summary="缺少服务名", error="service is required")
+    if not _safe_service_name(service):
+        return ToolResult(ok=False, summary="服务名不合法", error="service name contains unsupported characters")
+    rollback = {"tool": f"service.{inverse}", "args": {"service": service}}
+    if platform.system().lower() == "windows":
+        return ToolResult(
+            ok=True,
+            summary=f"当前为 Windows 开发环境，将在麒麟/Linux 环境使用 systemctl {action} {service}",
+            data={"service": service, "action": action, "rollback": rollback},
+        )
+    ok, output = _run_readonly(["systemctl", action, service], timeout=10)
+    return ToolResult(
+        ok=ok,
+        summary=f"服务 {service} 已{('启动' if action == 'start' else '停止')}" if ok else f"服务 {service} {action} 失败",
+        data={"service": service, "action": action, "output": output, "rollback": rollback} if ok
+        else {"service": service, "action": action},
+        error=None if ok else output,
+    )
+
+
+def start_service(args: dict[str, Any]) -> ToolResult:
+    return _service_lifecycle(args, action="start", inverse="stop")
+
+
+def stop_service(args: dict[str, Any]) -> ToolResult:
+    return _service_lifecycle(args, action="stop", inverse="start")
+
+
 def list_network_connections(args: dict[str, Any]) -> ToolResult:
     limit = _bounded_int(args.get("limit", 50), 1, 200)
     if platform.system().lower() == "windows":

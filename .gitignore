@@ -9,5 +9,7 @@ dist/
 build/
 *.egg-info/
 data/audit.log
+data/managed/
+data/snapshots/
 .env
 config/llm.local.yaml
