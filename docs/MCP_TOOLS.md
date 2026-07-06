@@ -1,6 +1,52 @@
 # MCP 工具定义
 
-当前项目提供 `McpToolService` 作为 MCP 风格 facade，后续可替换为标准 MCP Server。
+项目提供两层 MCP 能力：
+
+1. **标准 MCP Server（`safeops_agent.mcp_stdio`）** —— 符合 Model Context Protocol
+   的 JSON-RPC 2.0 stdio 服务端，可被 Claude Desktop 等真实 MCP 客户端直接连接。
+2. **`McpToolService`** —— 工具注册、安全裁决与调用的内核，被 stdio server、
+   Web 端、Agent 共享复用。
+
+## 标准 MCP Server 使用
+
+启动（stdio 传输，供 MCP 客户端拉起）：
+
+```bash
+PYTHONPATH=src python -m safeops_agent.mcp_stdio
+# 或安装后： safeops-mcp
+# 或 Windows： powershell scripts/mcp-stdio.ps1
+```
+
+实现的 JSON-RPC 方法：`initialize`、`notifications/initialized`、
+`tools/list`、`tools/call`、`ping`，协议版本 `2024-11-05`。
+
+在 Claude Desktop 的 `claude_desktop_config.json` 中注册：
+
+```json
+{
+  "mcpServers": {
+    "safeops": {
+      "command": "python",
+      "args": ["-m", "safeops_agent.mcp_stdio"],
+      "env": { "PYTHONPATH": "src" }
+    }
+  }
+}
+```
+
+`tools/call` 的每次调用都会先经 `PolicyEngine` 安全护栏裁决：LOW 直接放行、
+MEDIUM 需 `confirmed=true`、HIGH 拒绝，参数注入与敏感路径一律拦截；被拦截时
+响应 `isError=true` 并在 `structuredContent.error_code` 给出原因码。
+
+## 手动握手示例
+
+```bash
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | PYTHONPATH=src python -m safeops_agent.mcp_stdio
+```
 
 ## 工具元数据
 

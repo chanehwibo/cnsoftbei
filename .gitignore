@@ -10,3 +10,4 @@ build/
 *.egg-info/
 data/audit.log
 .env
+config/llm.local.yaml

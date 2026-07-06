@@ -52,7 +52,11 @@ def load_tools_config() -> dict[str, Any]:
 
 
 def load_llm_config() -> dict[str, Any]:
-    return load_simple_yaml(CONFIG_DIR / "llm.yaml")
+    """加载 LLM 配置，config/llm.local.yaml 覆盖 config/llm.yaml（本地私密文件不入库）。"""
+    config = load_simple_yaml(CONFIG_DIR / "llm.yaml")
+    local = load_simple_yaml(CONFIG_DIR / "llm.local.yaml")
+    config.update(local)
+    return config
 
 
 def resolve_project_path(value: str | Path) -> Path:
