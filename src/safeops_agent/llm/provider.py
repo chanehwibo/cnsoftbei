@@ -13,11 +13,17 @@ class LLMProvider(ABC):
     """LLM 意图理解抽象基类。"""
 
     @abstractmethod
-    def select_tool(self, text: str, tools: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any], str]:
+    def select_tool(
+        self,
+        text: str,
+        tools: list[dict[str, Any]],
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> tuple[str | None, dict[str, Any], str, str | None]:
         """理解用户意图，选择工具并提取参数。
 
         Returns:
-            (tool_name, args, reasoning) — tool_name 为 None 表示未匹配
+            (tool_name, args, reasoning, clarification) — tool_name 为 None 表示未匹配，
+            clarification 非 None 时表示需要追问用户。
         """
 
 
@@ -36,12 +42,17 @@ class DeepSeekProvider(LLMProvider):
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
 
-    def select_tool(self, text: str, tools: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any], str]:
-        messages = build_tool_selection_messages(text, tools)
+    def select_tool(
+        self,
+        text: str,
+        tools: list[dict[str, Any]],
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> tuple[str | None, dict[str, Any], str, str | None]:
+        messages = build_tool_selection_messages(text, tools, conversation_history)
         try:
             result = self._chat_completion(messages)
         except Exception:
-            return None, {}, "LLM 调用失败"
+            return None, {}, "LLM 调用失败", None
 
         return self._parse_response(result, tools)
 
@@ -75,32 +86,38 @@ class DeepSeekProvider(LLMProvider):
 
     def _parse_response(
         self, body: dict[str, Any], tools: list[dict[str, Any]]
-    ) -> tuple[str | None, dict[str, Any], str]:
+    ) -> tuple[str | None, dict[str, Any], str, str | None]:
         try:
             content = body["choices"][0]["message"]["content"]
             parsed = json.loads(content)
         except (KeyError, IndexError, json.JSONDecodeError):
-            return None, {}, "LLM 响应解析失败"
+            return None, {}, "LLM 响应解析失败", None
 
         tool_name = parsed.get("tool")
         args = parsed.get("args", {})
         reasoning = str(parsed.get("reasoning", ""))
+        clarification = parsed.get("clarification")
 
         if not tool_name:
-            return None, {}, reasoning or "LLM 未匹配到工具"
+            return None, {}, reasoning or "LLM 未匹配到工具", clarification
 
         valid_names = {t["name"] for t in tools}
         if tool_name not in valid_names:
-            return None, {}, f"LLM 返回未知工具: {tool_name}"
+            return None, {}, f"LLM 返回未知工具: {tool_name}", None
 
         if not isinstance(args, dict):
             args = {}
 
-        return str(tool_name), args, reasoning
+        return str(tool_name), args, reasoning, clarification if clarification else None
 
 
 class RuleBasedProvider(LLMProvider):
     """规则引擎 fallback，不调用外部 API。"""
 
-    def select_tool(self, text: str, tools: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any], str]:
-        return None, {}, ""
+    def select_tool(
+        self,
+        text: str,
+        tools: list[dict[str, Any]],
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> tuple[str | None, dict[str, Any], str, str | None]:
+        return None, {}, "", None

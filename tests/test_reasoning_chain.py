@@ -67,7 +67,7 @@ class ReasoningChainTest(unittest.TestCase):
 
     def test_llm_reasoning_captured_in_chain(self):
         mock_llm = MagicMock()
-        mock_llm.select_tool.return_value = ("system.resources", {}, "用户询问服务器负载")
+        mock_llm.select_tool.return_value = ("system.resources", {}, "用户询问服务器负载", None)
         mock_llm.__class__ = DeepSeekProvider
         agent = make_agent(llm=mock_llm)
         resp = agent.handle("服务器还撑得住吗")

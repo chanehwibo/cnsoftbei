@@ -57,8 +57,10 @@ class SafeOpsAgent:
         self._last_tool: str | None = None
         self._last_args: dict[str, Any] = {}
         self._last_service: str = ""
+        self._conversation_history: list[dict[str, str]] = []
 
     MAX_INPUT_LENGTH: int = 2000
+    MAX_HISTORY_TURNS: int = 10
 
     def handle(self, text: str, confirmed: bool = False) -> AgentResponse:
         started = time.perf_counter()
@@ -106,8 +108,26 @@ class SafeOpsAgent:
                   outputs={"allowed": True})
 
         # 步骤 3：工具选择（LLM 意图理解，失败回退规则匹配）
-        tool_name, args, intent_source, llm_reasoning = self._smart_select_tool(text)
+        tool_name, args, intent_source, llm_reasoning, clarification = self._smart_select_tool(text)
         source_label = "大模型意图理解" if intent_source == "llm" else "规则关键词匹配"
+
+        # 步骤 3.5：参数追问（LLM 请求澄清）
+        if clarification and (not tool_name or not args):
+            chain.add("tool_selection", "工具选择",
+                      f"{source_label}识别到工具但参数不足，向用户追问：{clarification}",
+                      outputs={"tool": tool_name, "source": intent_source, "clarification": clarification})
+            self._record_history("user", text)
+            self._record_history("assistant", clarification)
+            return AgentResponse(
+                ok=False,
+                message=clarification,
+                tool=tool_name,
+                risk=RiskLevel.LOW,
+                risk_score=5,
+                decision_summary=f"需要追问用户补充参数：{clarification}",
+                reasoning_chain=chain.steps,
+            )
+
         if tool_name is None:
             chain.add("tool_selection", "工具选择", f"{source_label}未匹配到可执行工具",
                       outputs={"tool": None, "source": intent_source})
@@ -187,6 +207,8 @@ class SafeOpsAgent:
                   f"工具执行{'成功' if result.ok else '失败'}：{result.summary}",
                   outputs={"executed": True, "ok": result.ok, "summary": result.summary})
         self._update_context(tool_name, args)
+        self._record_history("user", text)
+        self._record_history("assistant", result.summary or "")
         self._audit(text, tool_name, args, decision, result, started, risk_score,
                     decision_summary, intent_source=intent_source, reasoning_chain=chain.steps)
         return AgentResponse(
@@ -200,11 +222,11 @@ class SafeOpsAgent:
             reasoning_chain=chain.steps,
         )
 
-    def _smart_select_tool(self, text: str) -> tuple[str | None, dict[str, Any], str, str]:
+    def _smart_select_tool(self, text: str) -> tuple[str | None, dict[str, Any], str, str, str | None]:
         """先尝试 LLM 意图理解，失败则 fallback 到规则匹配。
 
-        返回 (tool, args, source, reasoning)。reasoning 为 LLM 给出的思维链原文，
-        规则匹配时为空字符串。
+        返回 (tool, args, source, reasoning, clarification)。reasoning 为 LLM 给出的思维链原文，
+        规则匹配时为空字符串。clarification 非 None 表示 LLM 追问用户。
         """
         if not isinstance(self.llm, RuleBasedProvider):
             tool_descriptions = [
@@ -217,12 +239,16 @@ class SafeOpsAgent:
                 }
                 for t in self.tools.values()
             ]
-            tool_name, args, reasoning = self.llm.select_tool(text, tool_descriptions)
+            tool_name, args, reasoning, clarification = self.llm.select_tool(
+                text, tool_descriptions, self._conversation_history
+            )
+            if clarification and (not tool_name or not args):
+                return tool_name, args, "llm", reasoning, clarification
             if tool_name and tool_name in self.tools:
-                return tool_name, args, "llm", reasoning
+                return tool_name, args, "llm", reasoning, None
 
         tool_name, args = self._select_tool(text)
-        return tool_name, args, "rule", ""
+        return tool_name, args, "rule", "", None
 
     def _select_tool(self, text: str) -> tuple[str | None, dict[str, Any]]:
         normalized = text.lower()
@@ -333,6 +359,11 @@ class SafeOpsAgent:
         service = str(args.get("service", "")).strip()
         if service:
             self._last_service = service
+
+    def _record_history(self, role: str, content: str) -> None:
+        self._conversation_history.append({"role": role, "content": content})
+        if len(self._conversation_history) > self.MAX_HISTORY_TURNS * 2:
+            self._conversation_history = self._conversation_history[-self.MAX_HISTORY_TURNS * 2:]
 
     def _risk_score(self, decision: PolicyDecision) -> int:
         base = {

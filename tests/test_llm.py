@@ -15,9 +15,10 @@ from safeops_agent.llm.prompts import build_tool_selection_messages, build_tools
 class RuleBasedProviderTest(unittest.TestCase):
     def test_always_returns_none(self):
         provider = RuleBasedProvider()
-        tool_name, args, reasoning = provider.select_tool("查看系统信息", [])
+        tool_name, args, reasoning, clarification = provider.select_tool("查看系统信息", [])
         self.assertIsNone(tool_name)
         self.assertEqual(args, {})
+        self.assertIsNone(clarification)
 
 
 class GetProviderTest(unittest.TestCase):
@@ -69,10 +70,11 @@ class DeepSeekProviderParseTest(unittest.TestCase):
                 }
             }]
         }
-        tool_name, args, reasoning = provider._parse_response(body, tools)
+        tool_name, args, reasoning, clarification = provider._parse_response(body, tools)
         self.assertEqual(tool_name, "system.info")
         self.assertEqual(args, {})
         self.assertIn("系统信息", reasoning)
+        self.assertIsNone(clarification)
 
     def test_returns_none_for_null_tool(self):
         provider = self.make_provider()
@@ -84,7 +86,7 @@ class DeepSeekProviderParseTest(unittest.TestCase):
                 }
             }]
         }
-        tool_name, args, reasoning = provider._parse_response(body, tools)
+        tool_name, args, reasoning, clarification = provider._parse_response(body, tools)
         self.assertIsNone(tool_name)
 
     def test_rejects_unknown_tool(self):
@@ -97,7 +99,7 @@ class DeepSeekProviderParseTest(unittest.TestCase):
                 }
             }]
         }
-        tool_name, args, reasoning = provider._parse_response(body, tools)
+        tool_name, args, reasoning, clarification = provider._parse_response(body, tools)
         self.assertIsNone(tool_name)
         self.assertIn("未知工具", reasoning)
 
@@ -105,7 +107,7 @@ class DeepSeekProviderParseTest(unittest.TestCase):
         provider = self.make_provider()
         tools = []
         body = {"choices": [{"message": {"content": "not json at all"}}]}
-        tool_name, args, reasoning = provider._parse_response(body, tools)
+        tool_name, args, reasoning, clarification = provider._parse_response(body, tools)
         self.assertIsNone(tool_name)
         self.assertIn("解析失败", reasoning)
 
@@ -127,7 +129,7 @@ class AgentLLMIntegrationTest(unittest.TestCase):
 
     def test_uses_llm_result_when_available(self):
         mock_llm = MagicMock()
-        mock_llm.select_tool.return_value = ("system.resources", {}, "用户想看资源")
+        mock_llm.select_tool.return_value = ("system.resources", {}, "用户想看资源", None)
         # Ensure it's not a RuleBasedProvider
         mock_llm.__class__ = DeepSeekProvider
 
@@ -138,13 +140,31 @@ class AgentLLMIntegrationTest(unittest.TestCase):
 
     def test_fallback_to_rule_when_llm_returns_none(self):
         mock_llm = MagicMock()
-        mock_llm.select_tool.return_value = (None, {}, "未匹配")
+        mock_llm.select_tool.return_value = (None, {}, "未匹配", None)
         mock_llm.__class__ = DeepSeekProvider
 
         agent = self.make_agent(llm=mock_llm)
         response = agent.handle("查看系统信息")
         self.assertTrue(response.ok)
         self.assertEqual(response.tool, "system.info")
+
+
+    def test_clarification_returns_question_to_user(self):
+        mock_llm = MagicMock()
+        mock_llm.select_tool.return_value = ("service.restart", {}, "缺少服务名", "请问您要重启哪个服务？")
+        mock_llm.__class__ = DeepSeekProvider
+
+        agent = self.make_agent(llm=mock_llm)
+        response = agent.handle("重启服务")
+        self.assertFalse(response.ok)
+        self.assertIn("请问您要重启哪个服务", response.message)
+        self.assertEqual(response.tool, "service.restart")
+
+    def test_conversation_history_grows(self):
+        agent = self.make_agent(llm=RuleBasedProvider())
+        agent.handle("查看系统信息")
+        agent.handle("查看CPU和内存")
+        self.assertEqual(len(agent._conversation_history), 4)
 
 
 if __name__ == "__main__":
