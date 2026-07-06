@@ -170,6 +170,9 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             self._json({"ok": False, "error": "invalid content-length"}, HTTPStatus.BAD_REQUEST)
             return
+        if content_length < 0:
+            self._json({"ok": False, "error": "invalid content-length"}, HTTPStatus.BAD_REQUEST)
+            return
         if content_length > MAX_BODY_SIZE:
             self._json({"ok": False, "error": "request body too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             return
