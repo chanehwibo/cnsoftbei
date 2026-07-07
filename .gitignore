@@ -13,3 +13,4 @@ data/managed/
 data/snapshots/
 .env
 config/llm.local.yaml
+data/pending_actions.json
