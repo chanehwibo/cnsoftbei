@@ -4,6 +4,8 @@ $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 $env:PYTHONPATH = "src"
 $env:PYTHONIOENCODING = "utf-8"
+# 验收脚本走离线规则模式：断言精确工具名，不受 LLM 非确定性影响，也不消耗 API 费用
+$env:SAFEOPS_LLM_DISABLED = "1"
 
 $process = $null
 try {

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+        exclude:
+          - os: windows-latest
+            python: "3.10"
+    runs-on: ${{ matrix.os }}
+    env:
+      # CI 强制离线规则模式：不触网、不消耗 API 费用、结果确定
+      SAFEOPS_LLM_DISABLED: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run unit tests
+        run: python -m unittest discover -s tests
+
+      # ubuntu 近似麒麟（无实机时先覆盖 Linux 代码分支：journalctl/systemctl/df/ss 路径）
+      - name: CLI smoke on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python -m safeops_agent.cli "查看系统信息"
+          python -m safeops_agent.cli "查看CPU和内存"
+          python -m safeops_agent.cli --list-tools > /dev/null
+          if python -m safeops_agent.cli "删除根目录所有文件"; then
+            echo "高风险请求未被拦截"; exit 1
+          fi
+          python -m safeops_agent.cli "重启 nginx 服务" || true
+          python -m safeops_agent.cli --verify-audit
+
+      - name: MCP stdio handshake on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | python -m safeops_agent.mcp_stdio | grep -q '"system.info"'

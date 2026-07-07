@@ -41,17 +41,17 @@
 
 | 编号 | 任务 | 目标产物 | 验收标准 | 状态 |
 | --- | --- | --- | --- | --- |
-| P2-01 | LLM Provider 抽象 | `safeops_agent.llm` | 支持 `RuleBasedProvider` 默认实现，并预留 OpenAI/本地模型实现 | 待做 |
-| P2-02 | 大模型接入说明 | `docs/LLM_INTEGRATION.md` | 说明 API Key 配置、离线模式、安全边界和失败降级 | 待做 |
-| P2-03 | 标准 MCP SDK 迁移计划 | `docs/MCP_SDK_MIGRATION.md` | 明确现有工具注册、schema、调用结果如何迁移到官方 MCP SDK | 待做 |
-| P2-04 | MCP 兼容测试 | `tests/test_mcp_contract.py` | 测试工具 schema、错误码、风险标注和参数校验契约 | 待做 |
+| P2-01 | LLM Provider 抽象 | `safeops_agent.llm` | 支持 `RuleBasedProvider` 默认实现，并预留 OpenAI/本地模型实现 | 已完成（DeepSeekProvider + 规则回退 + `SAFEOPS_LLM_DISABLED` 离线开关） |
+| P2-02 | 大模型接入说明 | `docs/LLM_INTEGRATION.md` | 说明 API Key 配置、离线模式、安全边界和失败降级 | 已完成 |
+| P2-03 | 标准 MCP SDK 迁移计划 | `docs/MCP_SDK_MIGRATION.md` | 明确现有工具注册、schema、调用结果如何迁移到官方 MCP SDK | 已完成（以更强形态落地：`mcp_stdio.py` 直接实现标准 JSON-RPC 2.0 stdio 协议，含版本协商） |
+| P2-04 | MCP 兼容测试 | `tests/test_mcp_contract.py` | 测试工具 schema、错误码、风险标注和参数校验契约 | 已完成（`tests/test_mcp_stdio.py` + `tests/test_mcp_service.py`） |
 | P2-05 | 配置校验 | `scripts/validate-config.ps1` | 校验 `config/*.yaml` 必要字段、工具禁用项和策略项格式 | 待做 |
 
 ## 6. P2：安全与工程完善
 
 | 编号 | 任务 | 目标产物 | 验收标准 | 状态 |
 | --- | --- | --- | --- | --- |
-| P2-06 | 最小权限执行器设计落地 | `docs/EXECUTOR_DESIGN.md`、原型代码 | 明确普通用户进程、受限 executor、sudo 白名单和审计边界 | 待做 |
+| P2-06 | 最小权限执行器设计落地 | `docs/EXECUTOR_DESIGN.md`、原型代码 | 明确普通用户进程、受限 executor、sudo 白名单和审计边界 | 部分完成（受管工作区 + 确认令牌 + 真实 systemctl 已落地；sudo 白名单需麒麟实机） |
 | P2-07 | 审计日志查询增强 | CLI/Web 审计筛选 | 支持按来源、风险等级、工具名筛选最近审计事件 | 待做 |
 | P2-08 | 错误码字典 | `docs/ERROR_CODES.md` | 汇总策略、工具、MCP、Web 相关错误码和处理建议 | 待做 |
 | P2-09 | 测试覆盖报告 | `docs/COVERAGE_NOTES.md` | 记录当前测试覆盖模块、缺口和后续测试计划 | 待做 |
@@ -69,14 +69,18 @@
 
 ## 8. 下一轮推荐顺序
 
-1. 完成真实麒麟系统验证报告。
+1. 完成真实麒麟系统验证报告（唯一无法在开发机完成的硬缺口）。
 2. 生成初赛答辩材料清单和 PPT 大纲。
-3. 补标准 MCP SDK 迁移计划。
-4. 补错误码字典和配置校验脚本。
-5. 继续增强 Web 审计筛选、诊断历史和截图导出。
+3. 补错误码字典和配置校验脚本。
+4. 继续增强 Web 审计筛选、诊断历史和截图导出。
 
-## 9. 暂不优先事项
+## 9. 本轮已落地的增强（2026-07）
 
-- 暂不优先接入真实大模型 API：会引入网络、Key、稳定性和费用问题，初赛阶段先保证离线可演示。
-- 暂不优先执行真实服务重启：需要最小权限执行器和麒麟实机安全验证后再开放。
-- 暂不优先大规模重构：当前结构已经能支撑初赛演示，后续应以小步增强为主。
+- LLM 意图理解（DeepSeek）+ 输出侧护栏 + 失败回退可见性 + 8s 超时。
+- 标准 MCP stdio 协议服务端（JSON-RPC 2.0，含版本协商）。
+- 一次性确认令牌：预演与执行严格一致，限时 + 会话绑定 + 确认后策略复核。
+- 审计日志哈希链防篡改 + `--verify-audit` / `GET /api/audit/verify` 校验。
+- Web 会话隔离（对话上下文按会话独立，慢请求互不阻塞）。
+- 服务 start/stop/restart 真实执行（Linux/麒麟），附逆操作建议。
+- 测试全量离线化（不再消耗 API 费用），GitHub Actions ubuntu CI 近似覆盖 Linux 分支。
+- Windows 开发环境体验：CLI UTF-8 输出、跳过断开网络盘（磁盘采集 21s → 0.1s）。

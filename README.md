@@ -2,14 +2,16 @@
 
 本项目用于中国软件杯赛题 1 A 组：面向麒麟操作系统的安全智能运维 Agent 设计与实现。
 
-当前阶段目标是先完成 MVP 闭环：
+核心能力：
 
-- 自然语言输入
-- 意图识别
-- 安全策略判断
-- 最小权限工具调用
-- 审计日志记录
-- MCP 风格工具接口
+- 自然语言输入（DeepSeek 大模型意图理解，离线自动回退规则匹配）
+- 意图风险过滤（输入与模型输出双向护栏）
+- 安全策略判断（低风险直执行 / 中风险确认令牌 / 高风险拒绝）
+- 最小权限工具调用（19+ 白名单工具，禁任意 shell）
+- 五步思维链审计 + 哈希链防篡改审计日志
+- 标准 MCP 协议 stdio 服务端（JSON-RPC 2.0）
+- 一次性确认令牌：预演与执行严格一致，限时、绑定会话
+- 受管工作区文件变更：写前快照、真实回滚
 
 ## 运行方式
 
@@ -31,7 +33,19 @@ $env:PYTHONPATH='src'
 python -m safeops_agent.cli "查看系统信息"
 python -m safeops_agent.cli "查看CPU和内存"
 python -m safeops_agent.cli "分析最近系统错误日志"
-python -m safeops_agent.cli "删除根目录所有文件"
+python -m safeops_agent.cli "删除根目录所有文件"      # 高风险，直接拒绝
+python -m safeops_agent.cli "重启 nginx 服务"         # 中风险，返回 dry-run 计划 + 确认令牌
+python -m safeops_agent.cli --confirm <令牌>          # 凭令牌精确执行已预演的动作
+python -m safeops_agent.cli --verify-audit            # 校验审计日志哈希链完整性
+```
+
+启用大模型意图理解：复制 `config/llm.local.yaml.example` 为 `config/llm.local.yaml` 并填入 API Key（详见 [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md)）。设置环境变量 `SAFEOPS_LLM_DISABLED=1` 可强制离线规则模式。
+
+启动标准 MCP stdio 服务端（供 MCP 客户端接入）：
+
+```powershell
+$env:PYTHONPATH='src'
+python -m safeops_agent.mcp_stdio
 ```
 
 运行测试：
@@ -79,6 +93,8 @@ data/audit.log
 
 ## 当前限制
 
-- 目前是本地规则驱动的 MVP，还未接入真实大模型。
-- MCP 层先提供工具清单和工具调用抽象，后续可替换为官方 MCP SDK。
-- 高风险操作默认拒绝，中风险操作需要显式确认后才允许执行。
+- 大模型意图理解已接入（DeepSeek，OpenAI 兼容接口），无 Key/无网络时自动回退本地规则，功能不中断。
+- MCP 已实现标准 JSON-RPC 2.0 stdio 协议服务端（initialize/tools/list/tools/call/ping），如需官方 SDK 形态可平滑替换传输层。
+- 服务生命周期操作（start/stop/restart）在麒麟/Linux 环境真实执行 systemctl；Windows 开发环境返回预告文本。真实麒麟实机验证仍待执行（见 docs/KYLIN_VALIDATION_CHECKLIST.md）。
+- 最小权限执行器（专用低权用户 + sudo 白名单）已有设计，需在麒麟实机落地。
+- 高风险操作默认拒绝；中风险操作需凭一次性确认令牌（或 --yes）确认后才执行。
