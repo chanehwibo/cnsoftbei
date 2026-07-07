@@ -28,11 +28,18 @@ class GetProviderTest(unittest.TestCase):
         provider = get_provider()
         self.assertIsInstance(provider, RuleBasedProvider)
 
-    @patch.dict("os.environ", {"LLM_API_KEY": "sk-test123"}, clear=False)
+    @patch.dict("os.environ", {"LLM_API_KEY": "sk-test123", "SAFEOPS_LLM_DISABLED": ""}, clear=False)
     @patch("safeops_agent.config.load_simple_yaml", return_value={"llm_enabled": True, "llm_provider": "deepseek"})
     def test_returns_deepseek_when_api_key_set(self, _mock_yaml):
+        # 显式清掉离线开关：CI/验收脚本会全局设置 SAFEOPS_LLM_DISABLED=1
         provider = get_provider()
         self.assertIsInstance(provider, DeepSeekProvider)
+
+    @patch.dict("os.environ", {"LLM_API_KEY": "sk-test123", "SAFEOPS_LLM_DISABLED": "1"}, clear=False)
+    @patch("safeops_agent.config.load_simple_yaml", return_value={"llm_enabled": True, "llm_provider": "deepseek"})
+    def test_disable_flag_forces_rule_based(self, _mock_yaml):
+        provider = get_provider()
+        self.assertIsInstance(provider, RuleBasedProvider)
 
 
 class PromptsTest(unittest.TestCase):

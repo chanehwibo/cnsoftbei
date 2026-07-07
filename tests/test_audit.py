@@ -4,13 +4,14 @@ from pathlib import Path
 
 from safeops_agent.agent import SafeOpsAgent
 from safeops_agent.audit.logger import AuditLogger
+from safeops_agent.llm import RuleBasedProvider
 
 
 class AuditLoggerTest(unittest.TestCase):
     def test_agent_writes_structured_audit_event(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             audit_path = Path(temp_dir) / "audit.log"
-            agent = SafeOpsAgent(audit_logger=AuditLogger(audit_path, source="test"))
+            agent = SafeOpsAgent(audit_logger=AuditLogger(audit_path, source="test"), llm=RuleBasedProvider())
 
             response = agent.handle("查看系统信息")
             events = AuditLogger(audit_path).recent(1)
@@ -27,7 +28,7 @@ class AuditLoggerTest(unittest.TestCase):
     def test_confirmation_request_writes_dry_run_audit_event(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             audit_path = Path(temp_dir) / "audit.log"
-            agent = SafeOpsAgent(audit_logger=AuditLogger(audit_path, source="test"))
+            agent = SafeOpsAgent(audit_logger=AuditLogger(audit_path, source="test"), llm=RuleBasedProvider())
 
             response = agent.handle("重启 nginx 服务")
             events = AuditLogger(audit_path).recent(1)

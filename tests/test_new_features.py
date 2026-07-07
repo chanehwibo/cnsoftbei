@@ -5,6 +5,7 @@ from pathlib import Path
 
 from safeops_agent.agent import SafeOpsAgent
 from safeops_agent.audit.logger import AuditLogger
+from safeops_agent.llm import RuleBasedProvider
 from safeops_agent.security.policy import PolicyEngine
 
 
@@ -12,7 +13,10 @@ class InputLengthTest(unittest.TestCase):
     def make_agent(self):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
-        return SafeOpsAgent(audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"))
+        return SafeOpsAgent(
+            audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"),
+            llm=RuleBasedProvider(),
+        )
 
     def test_rejects_oversized_input(self):
         agent = self.make_agent()
@@ -31,7 +35,10 @@ class ContextResolutionTest(unittest.TestCase):
     def make_agent(self):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
-        return SafeOpsAgent(audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"))
+        return SafeOpsAgent(
+            audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"),
+            llm=RuleBasedProvider(),
+        )
 
     def test_resolves_pronoun_after_service_query(self):
         agent = self.make_agent()
@@ -63,7 +70,10 @@ class ServiceNameExtractionTest(unittest.TestCase):
     def make_agent(self):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
-        return SafeOpsAgent(audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"))
+        return SafeOpsAgent(
+            audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"),
+            llm=RuleBasedProvider(),
+        )
 
     def test_extracts_known_service(self):
         agent = self.make_agent()
@@ -86,7 +96,10 @@ class ToolPriorityTest(unittest.TestCase):
     def make_agent(self):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
-        return SafeOpsAgent(audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"))
+        return SafeOpsAgent(
+            audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"),
+            llm=RuleBasedProvider(),
+        )
 
     def test_disk_partition_not_confused_with_resources(self):
         agent = self.make_agent()

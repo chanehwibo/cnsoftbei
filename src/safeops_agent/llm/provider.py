@@ -12,6 +12,10 @@ from safeops_agent.llm.prompts import build_tool_selection_messages
 class LLMProvider(ABC):
     """LLM 意图理解抽象基类。"""
 
+    def describe(self) -> str:
+        """人类可读的 Provider 自述，用于启动自检与运行日志。"""
+        return self.__class__.__name__
+
     @abstractmethod
     def select_tool(
         self,
@@ -35,12 +39,15 @@ class DeepSeekProvider(LLMProvider):
         api_key: str,
         model: str = "deepseek-chat",
         base_url: str = "https://api.deepseek.com",
-        timeout: int = 30,
+        timeout: int = 8,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+
+    def describe(self) -> str:
+        return f"deepseek/{self._model}（超时 {self._timeout}s，失败自动回退规则匹配）"
 
     def select_tool(
         self,
@@ -113,6 +120,9 @@ class DeepSeekProvider(LLMProvider):
 
 class RuleBasedProvider(LLMProvider):
     """规则引擎 fallback，不调用外部 API。"""
+
+    def describe(self) -> str:
+        return "规则关键词匹配（离线模式，不调用外部 API）"
 
     def select_tool(
         self,

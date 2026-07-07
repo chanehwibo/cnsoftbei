@@ -4,13 +4,18 @@ from pathlib import Path
 
 from safeops_agent.agent import SafeOpsAgent
 from safeops_agent.audit.logger import AuditLogger
+from safeops_agent.llm import RuleBasedProvider
 
 
 class AgentTest(unittest.TestCase):
     def make_agent(self):
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
-        return SafeOpsAgent(audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"))
+        # 注入离线规则 Provider，保证测试确定性且不触网
+        return SafeOpsAgent(
+            audit_logger=AuditLogger(Path(temp_dir.name) / "audit.log"),
+            llm=RuleBasedProvider(),
+        )
 
     def test_handles_system_info(self):
         response = self.make_agent().handle("查看系统信息")
