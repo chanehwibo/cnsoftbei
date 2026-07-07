@@ -12,6 +12,17 @@ const lastDecision = document.querySelector("#lastDecision");
 const confirmState = document.querySelector("#confirmState");
 const toolCount = document.querySelector("#toolCount");
 
+// 会话 ID：同一浏览器标签页内保持稳定，服务端据此隔离对话上下文并绑定确认令牌
+const sessionId = (() => {
+  let id = sessionStorage.getItem("safeops-session");
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : `s-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .replace(/[^A-Za-z0-9_-]/g, "");
+    sessionStorage.setItem("safeops-session", id);
+  }
+  return id;
+})();
+
 function formatRiskScore(score) {
   if (score === null || score === undefined || score === "") {
     return "-";
@@ -192,6 +203,25 @@ function addMessage(role, text, detail = {}) {
     item.append(summary);
   }
 
+  if (detail.pendingActionId) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "confirm-btn";
+    btn.textContent = "确认执行该操作（一次性令牌，10 分钟内有效）";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "已提交确认…";
+      try {
+        await confirmAction(detail.pendingActionId);
+        btn.textContent = "已确认执行";
+      } catch (error) {
+        btn.textContent = "确认失败，可重新发起请求";
+        addMessage("agent", `确认失败：${error.message}`);
+      }
+    });
+    item.append(btn);
+  }
+
   if (detail.reasoningChain) {
     appendReasoningChain(item, detail.reasoningChain);
   }
@@ -218,13 +248,7 @@ function updateStatus(result) {
   lastDecision.textContent = result.decision_summary || "-";
 }
 
-async function sendRequest(text) {
-  addMessage("user", text);
-  const result = await requestJson("/api/agent", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({request: text, confirmed: confirmInput.checked}),
-  });
+function renderAgentResult(result) {
   updateStatus(result);
   addMessage("agent", result.message || result.error || "无响应", {
     tool: result.tool,
@@ -234,7 +258,28 @@ async function sendRequest(text) {
     decisionSummary: result.decision_summary,
     data: result.data,
     reasoningChain: result.reasoning_chain,
+    pendingActionId: result.pending_action_id,
   });
+}
+
+async function sendRequest(text) {
+  addMessage("user", text);
+  const result = await requestJson("/api/agent", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-Session-Id": sessionId},
+    body: JSON.stringify({request: text, confirmed: confirmInput.checked}),
+  });
+  renderAgentResult(result);
+  await loadAudit();
+}
+
+async function confirmAction(actionId) {
+  const result = await requestJson("/api/agent", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-Session-Id": sessionId},
+    body: JSON.stringify({action_id: actionId}),
+  });
+  renderAgentResult(result);
   await loadAudit();
 }
 

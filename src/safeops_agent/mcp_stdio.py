@@ -23,6 +23,7 @@ from typing import Any, TextIO
 from safeops_agent.mcp_server import McpToolService
 
 PROTOCOL_VERSION = "2024-11-05"
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 SERVER_NAME = "safeops-agent"
 SERVER_VERSION = "0.1.0"
 
@@ -109,9 +110,11 @@ class McpStdioServer:
 
     # ---- 方法实现 --------------------------------------------------------
     def _on_initialize(self, params: dict[str, Any]) -> dict[str, Any]:
-        client_version = params.get("protocolVersion", PROTOCOL_VERSION)
+        requested = params.get("protocolVersion")
+        # MCP 版本协商：客户端版本受支持则采用之，否则回应本服务端的基线版本
+        negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
         return {
-            "protocolVersion": client_version if isinstance(client_version, str) else PROTOCOL_VERSION,
+            "protocolVersion": negotiated,
             "capabilities": {"tools": {"listChanged": False}},
             "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
             "instructions": "麒麟安全智能运维 Agent 的 MCP 工具服务，所有调用均经安全护栏裁决。",

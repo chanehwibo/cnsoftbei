@@ -469,3 +469,22 @@ p {
     grid-template-columns: 1fr;
   }
 }
+.confirm-btn {
+  margin-top: 8px;
+  padding: 6px 14px;
+  border: 1px solid #d97706;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  background: #fde68a;
+}
+
+.confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

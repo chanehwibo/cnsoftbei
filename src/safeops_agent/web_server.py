@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from safeops_agent.agent import SafeOpsAgent
 from safeops_agent.audit.logger import AuditLogger
 from safeops_agent.config import load_app_config, resolve_project_path
+from safeops_agent.llm import get_provider
 from safeops_agent.mcp_server import McpToolService
 
 
@@ -22,9 +23,38 @@ APP_CONFIG = load_app_config()
 AUDIT_PATH = resolve_project_path(APP_CONFIG["audit_log"])
 
 _audit_logger = AuditLogger(AUDIT_PATH, source="web")
-_agent = SafeOpsAgent(audit_logger=_audit_logger)
-_agent_lock = threading.Lock()
 _mcp = McpToolService()
+
+# 会话隔离：每个浏览器会话独立的 Agent 实例（对话历史、指代上下文互不串扰），
+# 且各会话独立加锁——一个会话的慢 LLM 调用不再阻塞其他会话。
+MAX_SESSIONS = 64
+_sessions: dict[str, dict] = {}
+_sessions_guard = threading.Lock()
+
+
+def _session_key(raw: str | None) -> str:
+    if not raw:
+        return "default"
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+    cleaned = "".join(char for char in raw if char in allowed)[:64]
+    return cleaned or "default"
+
+
+def _get_session(session_key: str) -> tuple[SafeOpsAgent, threading.Lock]:
+    with _sessions_guard:
+        entry = _sessions.get(session_key)
+        if entry is None:
+            if len(_sessions) >= MAX_SESSIONS:
+                oldest = min(_sessions, key=lambda key: _sessions[key]["last_used"])
+                _sessions.pop(oldest, None)
+            entry = {
+                "agent": SafeOpsAgent(audit_logger=_audit_logger, session_id=f"web:{session_key}"),
+                "lock": threading.Lock(),
+                "last_used": time.monotonic(),
+            }
+            _sessions[session_key] = entry
+        entry["last_used"] = time.monotonic()
+        return entry["agent"], entry["lock"]
 
 API_TOKEN: str = os.environ.get("SAFEOPS_TOKEN", "")
 RATE_LIMIT_MAX: int = 30
@@ -153,6 +183,10 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         if path == "/api/audit":
             self._json({"ok": True, "events": _audit_logger.recent(20)})
             return
+        if path == "/api/audit/verify":
+            report = _audit_logger.verify()
+            self._json({"ok": report["ok"], "report": report})
+            return
         if path == "/api/audit/export":
             self._serve_audit_export()
             return
@@ -185,13 +219,18 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
 
         request = str(payload.get("request", "")).strip()
         confirmed = bool(payload.get("confirmed", False))
-        if not request:
-            self._json({"ok": False, "error": "request is required"}, HTTPStatus.BAD_REQUEST)
+        action_id = str(payload.get("action_id", "")).strip()
+        if not request and not action_id:
+            self._json({"ok": False, "error": "request or action_id is required"}, HTTPStatus.BAD_REQUEST)
             return
 
-        agent = _agent
-        with _agent_lock:
-            response = agent.handle(request, confirmed=confirmed)
+        session_key = _session_key(self.headers.get("X-Session-Id"))
+        agent, agent_lock = _get_session(session_key)
+        with agent_lock:
+            if action_id:
+                response = agent.confirm(action_id)
+            else:
+                response = agent.handle(request, confirmed=confirmed)
         _sse.notify()
         self._json(
             {
@@ -204,6 +243,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
                 "data": response.data,
                 "requires_confirmation": response.requires_confirmation,
                 "reasoning_chain": response.reasoning_chain,
+                "pending_action_id": response.pending_action_id,
             },
             HTTPStatus.OK if response.ok else HTTPStatus.ACCEPTED,
         )
@@ -300,7 +340,8 @@ def main() -> int:
     host = str(APP_CONFIG["web_host"])
     port = int(APP_CONFIG["web_port"])
     server = ThreadingHTTPServer((host, port), SafeOpsWebHandler)
-    print(f"SafeOps Web running at http://{host}:{port}")
+    print(f"SafeOps Web running at http://{host}:{port}", flush=True)
+    print(f"LLM 意图理解：{get_provider().describe()}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
