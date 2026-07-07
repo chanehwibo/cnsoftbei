@@ -23,6 +23,7 @@ from .models import ToolResult
 MANAGED_ROOT = PROJECT_ROOT / "data" / "managed"
 SNAPSHOT_ROOT = PROJECT_ROOT / "data" / "snapshots"
 MAX_CONTENT_LENGTH = 64 * 1024
+MAX_SNAPSHOTS = 200
 
 
 def _safe_name(name: str) -> str | None:
@@ -134,6 +135,30 @@ def list_managed_files(_: dict[str, Any]) -> ToolResult:
 def _append_index(record: dict[str, Any]) -> None:
     with _snapshot_index().open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    _prune_snapshots()
+
+
+def _prune_snapshots(limit: int = MAX_SNAPSHOTS) -> None:
+    """快照只增不减会无限膨胀：超过上限时删除最旧快照并重写索引。"""
+    index = _snapshot_index()
+    if not index.is_file():
+        return
+    lines = [line for line in index.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(lines) <= limit:
+        return
+    dropped, kept = lines[:-limit], lines[-limit:]
+    for line in dropped:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        snapshot_id = str(record.get("snapshot_id", ""))
+        if not snapshot_id:
+            continue
+        snapshot_file = (SNAPSHOT_ROOT / snapshot_id).resolve()
+        if snapshot_file.is_relative_to(SNAPSHOT_ROOT.resolve()) and snapshot_file.is_file():
+            snapshot_file.unlink(missing_ok=True)
+    index.write_text("\n".join(kept) + "\n", encoding="utf-8")
 
 
 def _find_index(snapshot_id: str) -> dict[str, Any] | None:

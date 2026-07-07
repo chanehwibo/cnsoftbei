@@ -102,10 +102,15 @@ class SystemToolsTest(unittest.TestCase):
         result = query_package({"package": ""})
         self.assertTrue(result.ok)
 
-    def test_restart_service_disabled_in_mvp(self):
+    def test_restart_service_executes_with_rollback_hint(self):
         result = restart_service({"service": "nginx"})
+        # Windows 开发环境返回 systemctl 预告；Linux/麒麟真实执行。两者都必须附带逆操作建议。
+        self.assertIn("rollback", result.data or {})
+        self.assertEqual(result.data["rollback"]["tool"], "service.restart")
+
+    def test_restart_service_rejects_bad_name(self):
+        result = restart_service({"service": "nginx; rm -rf /"})
         self.assertFalse(result.ok)
-        self.assertIn("MVP", result.error)
 
     def test_cron_jobs_ok(self):
         result = list_cron_jobs({})

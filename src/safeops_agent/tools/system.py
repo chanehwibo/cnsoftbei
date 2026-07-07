@@ -10,7 +10,11 @@ from typing import Any
 from .models import ToolResult
 
 
-def _run_readonly(command: list[str], timeout: int = 5) -> tuple[bool, str]:
+def _run_command(command: list[str], timeout: int = 5) -> tuple[bool, str]:
+    """统一子进程执行入口：绝对路径定位、不经 shell、强制超时。
+
+    只读采集与经确认放行的变更命令（systemctl start/stop/restart）都从这里走。
+    """
     executable = shutil.which(command[0])
     if executable is None:
         return False, f"command not found: {command[0]}"
@@ -55,12 +59,12 @@ def list_processes(args: dict[str, Any]) -> ToolResult:
     limit = int(args.get("limit", 10))
     limit = max(1, min(limit, 50))
     if platform.system().lower() == "windows":
-        ok, output = _run_readonly(["tasklist"])
+        ok, output = _run_command(["tasklist"])
         if not ok:
             return ToolResult(ok=False, summary="进程列表采集失败", error=output)
         lines = output.splitlines()[: limit + 3]
     else:
-        ok, output = _run_readonly(["ps", "-eo", "pid,ppid,comm,%cpu,%mem", "--sort=-%cpu"])
+        ok, output = _run_command(["ps", "-eo", "pid,ppid,comm,%cpu,%mem", "--sort=-%cpu"])
         if not ok:
             return ToolResult(ok=False, summary="进程列表采集失败", error=output)
         lines = output.splitlines()[: limit + 1]
@@ -76,7 +80,7 @@ def inspect_recent_errors(args: dict[str, Any]) -> ToolResult:
             summary="当前为 Windows 开发环境，日志分析工具将在麒麟/Linux 环境使用 journalctl",
             data={"lines": []},
         )
-    ok, output = _run_readonly(["journalctl", "-p", "err", "-n", str(lines), "--no-pager"], timeout=8)
+    ok, output = _run_command(["journalctl", "-p", "err", "-n", str(lines), "--no-pager"], timeout=8)
     if not ok:
         return ToolResult(ok=False, summary="系统错误日志读取失败", error=output)
     return ToolResult(ok=True, summary=f"已读取最近 {lines} 条系统错误日志", data={"output": output})
@@ -94,7 +98,7 @@ def get_service_status(args: dict[str, Any]) -> ToolResult:
             summary="当前为 Windows 开发环境，服务状态工具将在麒麟/Linux 环境使用 systemctl",
             data={"service": service},
         )
-    ok, output = _run_readonly(["systemctl", "status", service, "--no-pager"], timeout=8)
+    ok, output = _run_command(["systemctl", "status", service, "--no-pager"], timeout=8)
     return ToolResult(
         ok=ok,
         summary=f"服务 {service} 状态查询完成" if ok else f"服务 {service} 状态查询失败",
@@ -103,16 +107,22 @@ def get_service_status(args: dict[str, Any]) -> ToolResult:
     )
 
 
-def restart_service(_: dict[str, Any]) -> ToolResult:
-    return ToolResult(
-        ok=False,
-        summary="重启服务属于中风险操作，MVP 阶段仅完成审批闭环，不执行真实变更",
-        error="execution disabled in MVP",
-    )
+_SERVICE_VERBS = {"start": "启动", "stop": "停止", "restart": "重启"}
+_SERVICE_INVERSE = {"start": "stop", "stop": "start", "restart": "restart"}
 
 
-def _service_lifecycle(args: dict[str, Any], action: str, inverse: str) -> ToolResult:
-    """服务生命周期动作（start/stop）：跨平台守护 + 逆操作建议。"""
+def restart_service(args: dict[str, Any]) -> ToolResult:
+    return _service_lifecycle(args, action="restart")
+
+
+def _service_lifecycle(args: dict[str, Any], action: str) -> ToolResult:
+    """服务生命周期动作（start/stop/restart）：跨平台守护 + 逆操作建议。
+
+    restart 无严格逆操作，回滚建议为结合 service.status 与日志核查后再次重启。
+    该 handler 仅在策略引擎确认放行（中风险已确认）后才会被调用。
+    """
+    verb = _SERVICE_VERBS[action]
+    inverse = _SERVICE_INVERSE[action]
     service = str(args.get("service", "")).strip()
     if not service:
         return ToolResult(ok=False, summary="缺少服务名", error="service is required")
@@ -125,10 +135,10 @@ def _service_lifecycle(args: dict[str, Any], action: str, inverse: str) -> ToolR
             summary=f"当前为 Windows 开发环境，将在麒麟/Linux 环境使用 systemctl {action} {service}",
             data={"service": service, "action": action, "rollback": rollback},
         )
-    ok, output = _run_readonly(["systemctl", action, service], timeout=10)
+    ok, output = _run_command(["systemctl", action, service], timeout=15)
     return ToolResult(
         ok=ok,
-        summary=f"服务 {service} 已{('启动' if action == 'start' else '停止')}" if ok else f"服务 {service} {action} 失败",
+        summary=f"服务 {service} 已{verb}" if ok else f"服务 {service} {verb}失败",
         data={"service": service, "action": action, "output": output, "rollback": rollback} if ok
         else {"service": service, "action": action},
         error=None if ok else output,
@@ -136,21 +146,21 @@ def _service_lifecycle(args: dict[str, Any], action: str, inverse: str) -> ToolR
 
 
 def start_service(args: dict[str, Any]) -> ToolResult:
-    return _service_lifecycle(args, action="start", inverse="stop")
+    return _service_lifecycle(args, action="start")
 
 
 def stop_service(args: dict[str, Any]) -> ToolResult:
-    return _service_lifecycle(args, action="stop", inverse="start")
+    return _service_lifecycle(args, action="stop")
 
 
 def list_network_connections(args: dict[str, Any]) -> ToolResult:
     limit = _bounded_int(args.get("limit", 50), 1, 200)
     if platform.system().lower() == "windows":
-        ok, output = _run_readonly(["netstat", "-ano"], timeout=8)
+        ok, output = _run_command(["netstat", "-ano"], timeout=8)
     else:
-        ok, output = _run_readonly(["ss", "-tunap"], timeout=8)
+        ok, output = _run_command(["ss", "-tunap"], timeout=8)
         if not ok:
-            ok, output = _run_readonly(["netstat", "-tunap"], timeout=8)
+            ok, output = _run_command(["netstat", "-tunap"], timeout=8)
     if not ok:
         return ToolResult(ok=False, summary="网络连接采集失败", error=output)
     lines = output.splitlines()[: limit + 2]
@@ -160,15 +170,15 @@ def list_network_connections(args: dict[str, Any]) -> ToolResult:
 def list_listening_ports(args: dict[str, Any]) -> ToolResult:
     limit = _bounded_int(args.get("limit", 50), 1, 200)
     if platform.system().lower() == "windows":
-        ok, output = _run_readonly(["netstat", "-ano"], timeout=8)
+        ok, output = _run_command(["netstat", "-ano"], timeout=8)
         if ok:
             lines = [line for line in output.splitlines() if "LISTENING" in line.upper()]
         else:
             lines = []
     else:
-        ok, output = _run_readonly(["ss", "-lntup"], timeout=8)
+        ok, output = _run_command(["ss", "-lntup"], timeout=8)
         if not ok:
-            ok, output = _run_readonly(["netstat", "-lntup"], timeout=8)
+            ok, output = _run_command(["netstat", "-lntup"], timeout=8)
         lines = output.splitlines() if ok else []
     if not ok:
         return ToolResult(ok=False, summary="监听端口采集失败", error=output)
@@ -178,21 +188,45 @@ def list_listening_ports(args: dict[str, Any]) -> ToolResult:
 def list_disk_partitions(_: dict[str, Any]) -> ToolResult:
     if platform.system().lower() == "windows":
         partitions = []
-        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            root = f"{letter}:\\"
-            if Path(root).exists():
-                usage = shutil.disk_usage(root)
-                partitions.append(
-                    {
-                        "mount": root,
-                        "total_bytes": usage.total,
-                        "used_bytes": usage.used,
-                        "free_bytes": usage.free,
-                    }
-                )
-        return ToolResult(ok=True, summary=f"已获取 {len(partitions)} 个磁盘挂载点", data={"partitions": partitions})
+        skipped = []
+        if hasattr(os, "listdrives"):
+            roots = list(os.listdrives())
+        else:
+            roots = [f"{letter}:\\" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if Path(f"{letter}:\\").exists()]
+        get_drive_type = None
+        try:
+            import ctypes
 
-    ok, output = _run_readonly(["df", "-hT"], timeout=8)
+            get_drive_type = ctypes.windll.kernel32.GetDriveTypeW
+        except (ImportError, AttributeError, OSError):
+            pass
+        drive_remote = 4
+        for root in roots:
+            # 断开的网络映射盘会让 exists()/disk_usage() 阻塞数十秒，网络盘只列出不探测
+            if get_drive_type is not None and get_drive_type(root) == drive_remote:
+                skipped.append({"mount": root, "note": "network drive, usage not probed"})
+                continue
+            try:
+                usage = shutil.disk_usage(root)
+            except OSError:
+                continue
+            partitions.append(
+                {
+                    "mount": root,
+                    "total_bytes": usage.total,
+                    "used_bytes": usage.used,
+                    "free_bytes": usage.free,
+                }
+            )
+        data: dict[str, Any] = {"partitions": partitions}
+        if skipped:
+            data["skipped"] = skipped
+        summary = f"已获取 {len(partitions)} 个磁盘挂载点"
+        if skipped:
+            summary += f"（跳过 {len(skipped)} 个网络盘）"
+        return ToolResult(ok=True, summary=summary, data=data)
+
+    ok, output = _run_command(["df", "-hT"], timeout=8)
     if not ok:
         return ToolResult(ok=False, summary="磁盘分区采集失败", error=output)
     return ToolResult(ok=True, summary="已获取磁盘分区信息", data={"output": output})
@@ -228,7 +262,7 @@ def list_cron_jobs(_: dict[str, Any]) -> ToolResult:
         for item in sorted(cron_d.iterdir()):
             if item.is_file():
                 jobs.append({"source": str(item), "content": item.read_text(encoding="utf-8", errors="ignore")})
-    ok, output = _run_readonly(["crontab", "-l"], timeout=5)
+    ok, output = _run_command(["crontab", "-l"], timeout=5)
     if ok:
         jobs.append({"source": "user-crontab", "content": output})
     return ToolResult(ok=True, summary=f"已获取 {len(jobs)} 组定时任务配置", data={"jobs": jobs})
@@ -266,7 +300,7 @@ def query_package(args: dict[str, Any]) -> ToolResult:
         command = ["dpkg-query", "-W"] if not package else ["dpkg-query", "-W", package]
     else:
         return ToolResult(ok=False, summary="软件包查询失败", error="rpm and dpkg-query are unavailable")
-    ok, output = _run_readonly(command, timeout=10)
+    ok, output = _run_command(command, timeout=10)
     return ToolResult(
         ok=ok,
         summary="软件包查询完成" if ok else "软件包查询失败",

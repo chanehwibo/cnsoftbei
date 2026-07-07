@@ -157,7 +157,7 @@ class PolicyEngine:
                     error_code="ARG_SENSITIVE_PATH",
                 )
 
-        if tool.name in {"service.status", "service.restart"}:
+        if tool.name in {"service.status", "service.restart", "service.start", "service.stop"}:
             service = str(args.get("service", "")).strip()
             if not service:
                 return PolicyDecision(
