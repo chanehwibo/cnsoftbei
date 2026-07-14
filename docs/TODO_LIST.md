@@ -13,7 +13,7 @@
 | --- | --- | --- | --- | --- |
 | P0-01 | 麒麟实机验证报告 | `docs/KYLIN_VALIDATION_REPORT.md` | 记录麒麟版本、Python 版本、测试结果、CLI/Web 演示结果、截图清单 | 待做 |
 | P0-02 | 自动验收报告生成 | `scripts/report.ps1`、`dist/acceptance-report.md` | 一键运行验收、工具清单和审计摘要，并生成 Markdown 报告 | 已完成 |
-| P0-03 | 初赛答辩材料清单 | `docs/DEFENSE_CHECKLIST.md` | 明确答辩前要打开的页面、命令、截图、讲解顺序和兜底方案 | 待做 |
+| P0-03 | 初赛答辩材料清单 | `docs/DEFENSE_CHECKLIST.md` | 明确答辩前要打开的页面、命令、截图、讲解顺序和兜底方案 | 已完成 |
 | P0-04 | Web 演示冒烟测试 | `scripts/web-smoke.ps1` | 自动启动 Web，请求 `/api/health`、`/api/tools`、`/api/agent`、`/api/audit` 后停止服务 | 已完成 |
 | P0-05 | 项目提交包校验 | `scripts/verify-package.ps1` | 校验 zip 包包含源码、测试、配置、Web、脚本和关键文档，不包含 `.git` 与运行日志 | 已完成 |
 
