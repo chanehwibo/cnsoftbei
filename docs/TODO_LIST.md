@@ -45,16 +45,16 @@
 | P2-02 | 大模型接入说明 | `docs/LLM_INTEGRATION.md` | 说明 API Key 配置、离线模式、安全边界和失败降级 | 已完成 |
 | P2-03 | 标准 MCP SDK 迁移计划 | `docs/MCP_SDK_MIGRATION.md` | 明确现有工具注册、schema、调用结果如何迁移到官方 MCP SDK | 已完成（以更强形态落地：`mcp_stdio.py` 直接实现标准 JSON-RPC 2.0 stdio 协议，含版本协商） |
 | P2-04 | MCP 兼容测试 | `tests/test_mcp_contract.py` | 测试工具 schema、错误码、风险标注和参数校验契约 | 已完成（`tests/test_mcp_stdio.py` + `tests/test_mcp_service.py`） |
-| P2-05 | 配置校验 | `scripts/validate-config.ps1` | 校验 `config/*.yaml` 必要字段、工具禁用项和策略项格式 | 待做 |
+| P2-05 | 配置校验 | `scripts/validate-config.ps1` | 校验 `config/*.yaml` 必要字段、工具禁用项和策略项格式 | 已完成（`safeops_agent.config_check` 模块 + 一键脚本，error/warning 分级，11 例测试） |
 
 ## 6. P2：安全与工程完善
 
 | 编号 | 任务 | 目标产物 | 验收标准 | 状态 |
 | --- | --- | --- | --- | --- |
 | P2-06 | 最小权限执行器设计落地 | `docs/EXECUTOR_DESIGN.md`、原型代码 | 明确普通用户进程、受限 executor、sudo 白名单和审计边界 | 部分完成（受管工作区 + 确认令牌 + 真实 systemctl 已落地；sudo 白名单需麒麟实机） |
-| P2-07 | 审计日志查询增强 | CLI/Web 审计筛选 | 支持按来源、风险等级、工具名筛选最近审计事件 | 待做 |
-| P2-08 | 错误码字典 | `docs/ERROR_CODES.md` | 汇总策略、工具、MCP、Web 相关错误码和处理建议 | 待做 |
-| P2-09 | 测试覆盖报告 | `docs/COVERAGE_NOTES.md` | 记录当前测试覆盖模块、缺口和后续测试计划 | 待做 |
+| P2-07 | 审计日志查询增强 | CLI/Web 审计筛选 | 支持按来源、风险等级、工具名筛选最近审计事件 | 已完成（`AuditLogger.query` + CLI `--show-audit` + `/api/audit` 查询参数 + Web 筛选控件） |
+| P2-08 | 错误码字典 | `docs/ERROR_CODES.md` | 汇总策略、工具、MCP、Web 相关错误码和处理建议 | 已完成 |
+| P2-09 | 测试覆盖报告 | `docs/COVERAGE_NOTES.md` | 记录当前测试覆盖模块、缺口和后续测试计划 | 已完成（158 例覆盖矩阵 + 缺口清单） |
 | P2-10 | Windows/麒麟差异说明增强 | 更新部署和测试文档 | 明确哪些结果在 Windows 为兼容输出，哪些必须在麒麟验证 | 部分完成 |
 
 ## 7. P3：展示与材料优化
@@ -70,9 +70,8 @@
 ## 8. 下一轮推荐顺序
 
 1. 完成真实麒麟系统验证报告（唯一无法在开发机完成的硬缺口）。
-2. 生成初赛答辩材料清单和 PPT 大纲。
-3. 补错误码字典和配置校验脚本。
-4. 继续增强 Web 审计筛选、诊断历史和截图导出。
+2. 生成初赛答辩材料清单（PPT 已有实体文件 `SafeOps_答辩演示PPT.pptx`）。
+3. 继续增强 Web 诊断历史和截图导出，补齐截图清单与 README 结构图。
 
 ## 9. 本轮已落地的增强（2026-07）
 
@@ -84,3 +83,6 @@
 - 服务 start/stop/restart 真实执行（Linux/麒麟），附逆操作建议。
 - 测试全量离线化（不再消耗 API 费用），GitHub Actions ubuntu CI 近似覆盖 Linux 分支。
 - Windows 开发环境体验：CLI UTF-8 输出、跳过断开网络盘（磁盘采集 21s → 0.1s）。
+- 配置校验：`validate-config.ps1` / `python -m safeops_agent.config_check`，四个 yaml 的字段与取值校验。
+- 审计筛选：CLI `--show-audit` 与 Web 审计区支持按来源、风险等级、工具名过滤。
+- 工程文档补齐：错误码字典（`ERROR_CODES.md`）与测试覆盖说明（`COVERAGE_NOTES.md`）。
