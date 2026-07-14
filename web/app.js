@@ -308,10 +308,33 @@ async function loadTools() {
   }
 }
 
+const auditSource = document.querySelector("#auditSource");
+const auditRisk = document.querySelector("#auditRisk");
+const auditTool = document.querySelector("#auditTool");
+
 async function loadAudit() {
-  const result = await requestJson("/api/audit");
+  const params = new URLSearchParams();
+  if (auditSource.value) {
+    params.set("source", auditSource.value);
+  }
+  if (auditRisk.value) {
+    params.set("risk", auditRisk.value);
+  }
+  const toolFilter = auditTool.value.trim();
+  if (toolFilter) {
+    params.set("tool", toolFilter);
+  }
+  const query = params.toString();
+  const result = await requestJson(query ? `/api/audit?${query}` : "/api/audit");
   const events = result.events || [];
   auditEl.innerHTML = "";
+  if (events.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.textContent = query ? "没有匹配筛选条件的审计事件" : "暂无审计事件";
+    auditEl.append(empty);
+    return;
+  }
   for (const event of events.slice().reverse()) {
     const item = document.createElement("div");
     item.className = "audit-item";
@@ -368,6 +391,13 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
 });
 
 document.querySelector("#refreshAudit").addEventListener("click", loadAudit);
+auditSource.addEventListener("change", () => loadAudit().catch(() => {}));
+auditRisk.addEventListener("change", () => loadAudit().catch(() => {}));
+let auditToolTimer = null;
+auditTool.addEventListener("input", () => {
+  clearTimeout(auditToolTimer);
+  auditToolTimer = setTimeout(() => loadAudit().catch(() => {}), 300);
+});
 
 function connectSSE() {
   let url = "/api/events";

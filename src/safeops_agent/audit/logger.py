@@ -6,6 +6,7 @@ import os
 import platform
 import threading
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -130,6 +131,45 @@ class AuditLogger:
             except json.JSONDecodeError:
                 events.append({"malformed": True, "raw": line})
         return events
+
+    def query(
+        self,
+        limit: int = 20,
+        source: str | None = None,
+        risk: str | None = None,
+        tool: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """按来源、风险等级、工具名筛选最近审计事件（无筛选条件时等价于 recent）。
+
+        source/risk 精确匹配（忽略大小写），tool 子串匹配（忽略大小写），
+        条件之间为 AND 关系；返回时间顺序的最近 limit 条匹配事件。
+        """
+        if not (source or risk or tool):
+            return self.recent(limit)
+        if not self.path.exists():
+            return []
+        limit = max(1, min(int(limit), 200))
+        source_key = source.strip().lower() if source else None
+        risk_key = risk.strip().upper() if risk else None
+        tool_key = tool.strip().lower() if tool else None
+        matches: deque[dict[str, Any]] = deque(maxlen=limit)
+        with self.path.open(encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if source_key and str(event.get("source", "")).lower() != source_key:
+                    continue
+                if risk_key and str(event.get("risk", "")).upper() != risk_key:
+                    continue
+                if tool_key and tool_key not in str(event.get("tool", "")).lower():
+                    continue
+                matches.append(event)
+        return list(matches)
 
     def _tail(self, n: int, block_size: int = 4096) -> list[str]:
         with self.path.open("rb") as f:

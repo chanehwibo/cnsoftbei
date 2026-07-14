@@ -181,7 +181,23 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             self._json({"ok": True, "tools": _mcp.list_tools()})
             return
         if path == "/api/audit":
-            self._json({"ok": True, "events": _audit_logger.recent(20)})
+            params = parse_qs(urlparse(self.path).query)
+
+            def _filter(name: str) -> str | None:
+                value = params.get(name, [""])[0].strip()
+                return value or None
+
+            try:
+                limit = int(params.get("limit", ["20"])[0])
+            except (ValueError, TypeError):
+                limit = 20
+            events = _audit_logger.query(
+                limit=limit,
+                source=_filter("source"),
+                risk=_filter("risk"),
+                tool=_filter("tool"),
+            )
+            self._json({"ok": True, "events": events})
             return
         if path == "/api/audit/verify":
             report = _audit_logger.verify()

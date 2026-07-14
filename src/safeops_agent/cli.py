@@ -31,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="以 JSON 输出完整结果")
     parser.add_argument("--list-tools", action="store_true", help="输出 MCP 风格工具清单")
     parser.add_argument("--verify-audit", action="store_true", help="校验审计日志哈希链完整性")
+    parser.add_argument("--show-audit", action="store_true", help="查看最近审计事件（可组合下方筛选参数）")
+    parser.add_argument("--audit-source", metavar="SOURCE", help="筛选审计来源（cli/web/safeops-agent），精确匹配")
+    parser.add_argument("--audit-risk", metavar="RISK", help="筛选风险等级（LOW/MEDIUM/HIGH），精确匹配")
+    parser.add_argument("--audit-tool", metavar="TOOL", help="筛选工具名（子串匹配，如 service）")
+    parser.add_argument("--audit-limit", type=int, default=20, metavar="N", help="返回最近 N 条（默认 20，最大 200）")
     return parser
 
 
@@ -48,8 +53,18 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["ok"] else 1
 
+    if args.show_audit:
+        events = AuditLogger(resolve_project_path(Path(args.audit_log))).query(
+            limit=args.audit_limit,
+            source=args.audit_source,
+            risk=args.audit_risk,
+            tool=args.audit_tool,
+        )
+        print(json.dumps({"count": len(events), "events": events}, ensure_ascii=False, indent=2))
+        return 0
+
     if not args.request and not args.confirm:
-        parser.error("request is required unless --list-tools/--verify-audit/--confirm is used")
+        parser.error("request is required unless --list-tools/--verify-audit/--show-audit/--confirm is used")
 
     agent = SafeOpsAgent(
         audit_logger=AuditLogger(resolve_project_path(Path(args.audit_log)), source="cli"),

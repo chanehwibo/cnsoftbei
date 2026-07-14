@@ -85,6 +85,21 @@
         </section>
         <section>
           <h2>审计日志</h2>
+          <div class="audit-filters" aria-label="审计筛选">
+            <select id="auditSource" title="按来源筛选">
+              <option value="">全部来源</option>
+              <option value="web">web</option>
+              <option value="cli">cli</option>
+              <option value="safeops-agent">safeops-agent</option>
+            </select>
+            <select id="auditRisk" title="按风险等级筛选">
+              <option value="">全部风险</option>
+              <option value="LOW">LOW</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="HIGH">HIGH</option>
+            </select>
+            <input id="auditTool" placeholder="工具名筛选" autocomplete="off">
+          </div>
           <div id="audit" class="audit-list"></div>
         </section>
       </aside>

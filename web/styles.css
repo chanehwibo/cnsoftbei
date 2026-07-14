@@ -370,6 +370,28 @@ p {
   gap: 8px;
 }
 
+.audit-filters {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.audit-filters input {
+  grid-column: 1 / -1;
+}
+
+.audit-filters select,
+.audit-filters input {
+  border: 1px solid #c9d3df;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  background: #fff;
+  color: inherit;
+}
+
 .tool-item,
 .audit-item {
   border: 1px solid #dbe2ea;
