@@ -14,3 +14,8 @@ data/snapshots/
 .env
 config/llm.local.yaml
 data/pending_actions.json
+
+# 含个人信息的报名表（走平台单独上传，不入开源仓库）
+初赛提交文档/
+# 其他比赛的参考资料，不属于本项目
+设计技术文档1.pdf
