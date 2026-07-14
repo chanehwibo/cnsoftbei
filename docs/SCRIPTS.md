@@ -131,3 +131,22 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 
 - 检查 `dist/cnsoftbei-submission.zip` 是否包含关键源码、测试、配置、Web、脚本和文档。
 - 检查提交包不包含 `.git`、运行期审计日志、缓存和 `dist/`。
+
+## 12. 校验配置文件
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\validate-config.ps1
+```
+
+作用：
+
+- 校验 `config/app.yaml`、`policy.yaml`、`tools.yaml`、`llm.yaml`（含 `llm.local.yaml` 覆盖）的必要字段、类型和取值范围。
+- `disabled_tools` 中的未知工具名、空 API Key 等以 warning 提示，不阻断。
+- 追加 `--json` 输出完整 JSON 报告；存在 error 时退出码为 1。
+
+跨平台等价命令：
+
+```powershell
+$env:PYTHONPATH='src'
+python -m safeops_agent.config_check
+```

@@ -35,8 +35,8 @@ from .system import (
 )
 
 
-def build_registry() -> dict[str, ToolSpec]:
-    tools = [
+def _build_specs() -> list[ToolSpec]:
+    return [
         ToolSpec(
             name="system.info",
             description="采集操作系统版本、内核、架构和主机信息",
@@ -226,5 +226,13 @@ def build_registry() -> dict[str, ToolSpec]:
             category="operations",
         ),
     ]
+
+
+def all_tool_names() -> list[str]:
+    """全量工具名（不受 disabled_tools 影响），供配置校验等场景使用。"""
+    return [tool.name for tool in _build_specs()]
+
+
+def build_registry() -> dict[str, ToolSpec]:
     disabled = set(load_tools_config().get("disabled_tools", []))
-    return {tool.name: tool for tool in tools if tool.name not in disabled}
+    return {tool.name: tool for tool in _build_specs() if tool.name not in disabled}
