@@ -16,6 +16,13 @@ python -m pip install -e .
 python -m safeops_agent.config_check
 ~~~
 
+需要运行自动化测试和覆盖率检查时安装测试可选依赖：
+
+~~~powershell
+python -m pip install -e ".[test]"
+python -m pip check
+~~~
+
 离线运行：
 
 ~~~powershell

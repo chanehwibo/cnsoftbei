@@ -84,6 +84,7 @@ safeops-mcp
 ~~~powershell
 $env:PYTHONPATH='src'
 $env:SAFEOPS_LLM_DISABLED='1'
+python -m pip install -e ".[test]"
 python -W error::ResourceWarning -m coverage run -m unittest discover -s tests
 python -m coverage report
 npm run test:web

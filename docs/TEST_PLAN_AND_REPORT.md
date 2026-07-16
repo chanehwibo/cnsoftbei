@@ -35,6 +35,7 @@
 ~~~powershell
 $env:PYTHONPATH='src'
 $env:SAFEOPS_LLM_DISABLED='1'
+python -m pip install -e ".[test]"
 python -W error::ResourceWarning -m coverage run -m unittest discover -s tests
 python -m coverage report
 python -m coverage xml
@@ -59,7 +60,7 @@ Node 前端测试：7 项通过。
 | 综合覆盖率 | 72.1% |
 | CI 最低门槛 | 70.0% |
 
-CI 生成 `coverage.xml` 并按操作系统和 Python 版本上传独立报告；低于门槛时任务失败。
+CI 先以 `python -m pip install -e ".[test]"` 安装项目、PyYAML 和 coverage，再执行 `pip check`；随后生成 `coverage.xml` 并按操作系统和 Python 版本上传独立报告。依赖不完整或覆盖率低于门槛时任务失败。
 
 测试文件：
 
