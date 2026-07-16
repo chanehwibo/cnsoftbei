@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from safeops_agent.audit.logger import AuditLogger
 from safeops_agent.security.pending import PendingActionStore
 from safeops_agent.security.policy import PolicyEngine
 from safeops_agent.tools.registry import build_registry
@@ -17,11 +18,13 @@ class McpToolService:
         tools: dict | None = None,
         policy: PolicyEngine | None = None,
         pending_store: PendingActionStore | None = None,
+        audit_logger: AuditLogger | None = None,
         session_id: str = "mcp",
     ) -> None:
         self.tools = tools if tools is not None else build_registry()
         self.policy = policy if policy is not None else PolicyEngine()
         self.pending = pending_store if pending_store is not None else PendingActionStore()
+        self.audit = audit_logger if audit_logger is not None else AuditLogger(source="mcp")
         self.session_id = session_id
 
     def list_tools(self) -> list[dict[str, Any]]:
@@ -60,6 +63,23 @@ class McpToolService:
         return tools
 
     def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        outcome = self._dispatch(name, args)
+        self.audit.record({
+            "event_type": "mcp.confirm" if name == self.CONFIRM_TOOL else "mcp.tool_call",
+            "session": self.session_id,
+            "tool": name,
+            "args": args,
+            "allowed": bool(outcome.get("ok")),
+            "risk": outcome.get("risk"),
+            "requires_confirmation": bool(outcome.get("requires_confirmation")),
+            "error_code": outcome.get("error_code"),
+            "reason": outcome.get("error"),
+            "result_ok": bool(outcome.get("ok")),
+            "result_summary": outcome.get("summary"),
+        })
+        return outcome
+
+    def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == self.CONFIRM_TOOL:
             return self._confirm(str(args.get("action_id", "")).strip())
         if name not in self.tools:

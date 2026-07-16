@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from safeops_agent.audit.logger import AuditLogger
 from safeops_agent.mcp_server import McpToolService
 from safeops_agent.security.pending import PendingActionStore
 from safeops_agent.tools.models import RiskLevel, ToolResult, ToolSpec
@@ -69,6 +70,18 @@ class McpToolServiceTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error_code"], "TOOL_NOT_FOUND")
+
+    def test_tool_call_is_written_to_mcp_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_path = Path(tmp) / "audit.log"
+            service = McpToolService(audit_logger=AuditLogger(audit_path, source="mcp"))
+            result = service.call_tool("system.info", {})
+            events = AuditLogger(audit_path).recent(1)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(events[0]["event_type"], "mcp.tool_call")
+        self.assertEqual(events[0]["tool"], "system.info")
+        self.assertEqual(events[0]["source"], "mcp")
 
 
 if __name__ == "__main__":
