@@ -302,6 +302,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
                 "decision_summary": response.decision_summary,
                 "data": response.data,
                 "requires_confirmation": response.requires_confirmation,
+                "decision_trace": response.reasoning_chain,
                 "reasoning_chain": response.reasoning_chain,
                 "pending_action_id": response.pending_action_id,
             },

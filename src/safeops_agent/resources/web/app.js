@@ -117,7 +117,7 @@ function appendDryRunPlan(container, plan) {
   container.append(panel);
 }
 
-function appendReasoningChain(container, chain) {
+function appendDecisionTrace(container, chain) {
   if (!Array.isArray(chain) || chain.length === 0) {
     return;
   }
@@ -125,7 +125,7 @@ function appendReasoningChain(container, chain) {
   panel.className = "result-panel chain-panel";
 
   const title = document.createElement("h3");
-  title.textContent = "思维链审计";
+  title.textContent = "决策审计轨迹";
   panel.append(title);
 
   const list = document.createElement("ol");
@@ -224,8 +224,8 @@ function addMessage(role, text, detail = {}) {
     item.append(btn);
   }
 
-  if (detail.reasoningChain) {
-    appendReasoningChain(item, detail.reasoningChain);
+  if (detail.decisionTrace) {
+    appendDecisionTrace(item, detail.decisionTrace);
   }
   appendStructuredData(item, detail.data);
   messages.append(item);
@@ -259,7 +259,7 @@ function renderAgentResult(result) {
     requiresConfirmation: result.requires_confirmation,
     decisionSummary: result.decision_summary,
     data: result.data,
-    reasoningChain: result.reasoning_chain,
+    decisionTrace: result.decision_trace || result.reasoning_chain,
     pendingActionId: result.pending_action_id,
   });
 }

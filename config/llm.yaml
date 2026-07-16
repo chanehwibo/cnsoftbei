@@ -6,5 +6,5 @@ llm_base_url: https://api.deepseek.com/v1
 # 超时过长会在 API 抖动时卡住演示界面；超时/失败会自动回退规则匹配
 llm_timeout: 8
 # true 时高置信关键词先走本地规则（0 延迟），未命中再请求 LLM；
-# false 时 LLM 意图理解优先（演示思维链推荐保持 false）
+# false 时 LLM 意图理解优先（演示决策轨迹推荐保持 false）
 llm_rule_fast_path: false

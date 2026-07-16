@@ -14,8 +14,8 @@ from safeops_agent.tools.models import RiskLevel, ToolResult
 from safeops_agent.tools.registry import build_registry
 
 
-class _ReasoningChain:
-    """按顺序累积可回放的思维链步骤。"""
+class _DecisionTrace:
+    """累积可审计的结构化决策事实；不记录或推断模型的隐藏思维过程。"""
 
     def __init__(self) -> None:
         self.steps: list[dict[str, Any]] = []
@@ -48,6 +48,7 @@ class AgentResponse:
     requires_confirmation: bool = False
     risk_score: int | None = None
     decision_summary: str | None = None
+    # 历史接口名保留兼容；其内容是决策轨迹，不是模型隐藏思维链。
     reasoning_chain: list[dict[str, Any]] | None = None
     pending_action_id: str | None = None
 
@@ -79,7 +80,7 @@ class SafeOpsAgent:
 
     def handle(self, text: str) -> AgentResponse:
         started = time.perf_counter()
-        chain = _ReasoningChain()
+        chain = _DecisionTrace()
         original_text = text
         if len(text) > self.MAX_INPUT_LENGTH:
             return AgentResponse(
@@ -164,7 +165,7 @@ class SafeOpsAgent:
             )
         detail = f"{source_label}选定工具 `{tool_name}`，参数 {args}"
         if intent_source == "llm" and llm_reasoning:
-            detail += f"；模型推理：{llm_reasoning}"
+            detail += f"；模型选择说明：{llm_reasoning}"
         if fallback_note:
             detail += f"（{fallback_note}，已自动回退规则匹配）"
         chain.add("tool_selection", "工具选择", detail,
@@ -262,7 +263,7 @@ class SafeOpsAgent:
         令牌一次性、限时、绑定会话；这是中风险动作的唯一放行入口。
         """
         started = time.perf_counter()
-        chain = _ReasoningChain()
+        chain = _DecisionTrace()
         record, error = self.pending.consume(action_id, session=self.session_id)
         if record is None:
             chain.add("pending_lookup", "确认令牌校验", f"令牌校验失败：{error}",
@@ -359,9 +360,9 @@ class SafeOpsAgent:
         """先尝试 LLM 意图理解，失败则 fallback 到规则匹配。
 
         返回 (tool, args, source, reasoning, clarification, fallback_note)。
-        reasoning 为 LLM 思维链原文（经输出护栏过滤），规则匹配时为空；
+        reasoning 是模型返回的一句话工具选择说明（经输出护栏过滤），规则匹配时为空；
         clarification 非 None 表示 LLM 追问用户；fallback_note 记录
-        LLM 失败原因，保证回退在思维链审计中可见而非静默发生。
+        LLM 失败原因，保证回退在决策轨迹中可见而非静默发生。
         """
         if self._rule_fast_path:
             tool_name, args = self._select_tool(text)
@@ -398,7 +399,7 @@ class SafeOpsAgent:
     def _sanitize_llm_text(self, text: str | None, limit: int = 300) -> str:
         """LLM 输出侧护栏：截断超长文本；命中高风险策略的输出整体屏蔽。
 
-        clarification/reasoning 会原样展示给运维人员并写入审计，
+        clarification/reasoning（单句选择说明）会展示给运维人员并写入审计，
         提示注入可能借模型之口输出诱导性指令，故输出与输入过同一套意图筛查。
         """
         if not text:
