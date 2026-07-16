@@ -61,6 +61,7 @@ function Invoke-PythonStep {
 Write-Host "SafeOps Agent acceptance started."
 
 Invoke-PythonStep "unit tests" @("-m", "unittest", "discover", "-s", "tests")
+Invoke-PythonStep "configuration validation" @("-m", "safeops_agent.config_check") @(0) "配置校验通过"
 Invoke-PythonStep "list MCP-style tools" @("-m", "safeops_agent.cli", "--list-tools") @(0) '"name": "system.info"'
 Invoke-PythonStep "low risk system info" @("-m", "safeops_agent.cli", "查看系统信息", "--json") @(0) '"tool": "system.info"'
 Invoke-PythonStep "low risk resources" @("-m", "safeops_agent.cli", "查看CPU和内存", "--json") @(0) '"tool": "system.resources"'
@@ -71,6 +72,7 @@ Invoke-PythonStep "high risk sensitive path blocked" @("-m", "safeops_agent.cli"
 if (-not (Test-Path -LiteralPath ".\data\audit.log")) {
   throw "audit log was not created at data\audit.log"
 }
+Invoke-PythonStep "signed audit verification" @("-m", "safeops_agent.cli", "--verify-audit") @(0) '"ok": true'
 
 Write-Host "`n[ACCEPT] recent audit events"
 Get-Content -LiteralPath ".\data\audit.log" -Encoding utf8 -Tail 5

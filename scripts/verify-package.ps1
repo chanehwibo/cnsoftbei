@@ -16,9 +16,16 @@ try {
     "README.md",
     "pyproject.toml",
     "src/safeops_agent/agent.py",
+    "src/safeops_agent/audit/logger.py",
+    "src/safeops_agent/mcp_stdio.py",
+    "src/safeops_agent/security/pending.py",
     "src/safeops_agent/tools/diagnostics.py",
+    "src/safeops_agent/resources/config/app.yaml",
+    "src/safeops_agent/resources/web/index.html",
     "tests/test_agent.py",
     "tests/test_audit.py",
+    "tests/test_packaging.py",
+    "tests/test_web_server.py",
     "config/app.yaml",
     "web/index.html",
     "web/app.js",
@@ -26,9 +33,18 @@ try {
     "scripts/report.ps1",
     "scripts/web-smoke.ps1",
     "scripts/verify-package.ps1",
-    "docs/INITIAL_SUBMISSION.md",
-    "docs/FEATURE_HIGHLIGHTS_PLAN.md",
-    "docs/TODO_LIST.md"
+    "docs/ARCHITECTURE.md",
+    "docs/BEGINNER_OPERATION_MANUAL.md",
+    "docs/DEMO_SCRIPT.md",
+    "docs/DEPLOYMENT.md",
+    "docs/DESIGN_TECHNICAL_DOCUMENT.md",
+    "docs/DEVELOPMENT_LOG.md",
+    "docs/ERROR_CODES.md",
+    "docs/LLM_INTEGRATION.md",
+    "docs/MCP_TOOLS.md",
+    "docs/SAFETY_GUARDRAILS.md",
+    "docs/SCRIPTS.md",
+    "docs/TEST_PLAN_AND_REPORT.md"
   )
   foreach ($item in $required) {
     if ($entries -notcontains $item) {

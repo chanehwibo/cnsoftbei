@@ -1,152 +1,47 @@
-# 开发脚本
+# 脚本参考
 
-## 1. 运行测试
+所有脚本从自身位置解析仓库根目录。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test.ps1
-```
+| 脚本 | 作用 |
+| --- | --- |
+| `test.ps1` | 设置源码路径并运行 unittest |
+| `acceptance.ps1` | 运行自动测试、工具清单、LOW/MEDIUM/HIGH CLI 场景和审计生成 |
+| `validate-config.ps1` | 运行标准 YAML 配置校验，参数原样转发 |
+| `web.ps1` | 前台启动 Web 工作台 |
+| `web-smoke.ps1` | 隐藏启动临时 Web 进程，验证 health/tools/agent/audit 后停止 |
+| `stop-web.ps1` | 停止 Web 服务进程 |
+| `mcp-stdio.ps1` | 启动 MCP stdio 服务 |
+| `show-tools.ps1` | 输出 MCP 工具清单 |
+| `demo.ps1` | 顺序演示查询、预演、拒绝和审计 |
+| `report.ps1` | 运行 acceptance 并生成 `dist/acceptance-report.md` |
+| `package.ps1` | 生成 `dist/cnsoftbei-submission.zip` |
+| `verify-package.ps1` | 校验提交包必需项和禁止项 |
+| `clean.ps1` | 清理开发缓存 |
 
-作用：
+常用命令：
 
-- 设置 `PYTHONPATH=src`。
-- 运行全部单元测试。
-
-## 2. 运行验收
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
-```
-
-作用：
-
-- 运行单元测试。
-- 验证 MCP 风格工具清单输出。
-- 验证系统信息、资源指标、监听端口等低风险查询。
-- 验证中风险操作需要确认。
-- 验证高风险敏感路径请求会被拒绝。
-- 检查审计日志是否生成。
-
-## 3. 运行演示命令
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\demo.ps1
-```
-
-作用：
-
-- 依次执行核心演示场景。
-- 输出最近审计日志。
-- 高风险拦截命令返回非零状态时继续执行。
-
-## 4. 启动 Web 工作台
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\web.ps1
-```
-
-访问：
-
-```text
-http://127.0.0.1:8765
-```
-
-## 5. 查看 MCP 工具清单
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\show-tools.ps1
-```
-
-也可以使用跨平台 CLI 命令：
-
-```powershell
-$env:PYTHONPATH='src'
-python -m safeops_agent.cli --list-tools
-```
-
-## 6. 生成提交包
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1
-```
-
-作用：
-
-- 创建 `dist/cnsoftbei-submission.zip`。
-- 打包源码、测试、配置、Web、脚本、演示数据和文档。
-- 不打包 `.git`、运行期审计日志和 Python 缓存。
-
-## 7. 清理缓存
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\clean.ps1
-```
-
-作用：
-
-- 删除 `__pycache__`。
-- 删除 `.pytest_cache`。
-
-## 8. 停止 Web 工作台
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\stop-web.ps1
-```
-
-作用：
-
-- 查找命令行中包含 `safeops_agent.web_server` 的进程。
-- 停止 SafeOps Web 工作台后台进程。
-## 9. 生成自动验收报告
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\report.ps1
-```
-
-作用：
-
-- 运行一键验收。
-- 统计 MCP 风格工具数量和分类。
-- 汇总最近审计日志。
-- 生成 `dist/acceptance-report.md`。
-
-## 10. 运行 Web 冒烟测试
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
-```
-
-作用：
-
-- 自动启动 Web 工作台。
-- 验证 `/api/health`、`/api/tools`、`/api/agent`、`/api/audit`。
-- 测试结束后自动停止临时 Web 进程。
-
-## 11. 校验提交包
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
-```
-
-作用：
-
-- 检查 `dist/cnsoftbei-submission.zip` 是否包含关键源码、测试、配置、Web、脚本和文档。
-- 检查提交包不包含 `.git`、运行期审计日志、缓存和 `dist/`。
-
-## 12. 校验配置文件
-
-```powershell
+~~~powershell
 powershell -ExecutionPolicy Bypass -File scripts\validate-config.ps1
-```
+powershell -ExecutionPolicy Bypass -File scripts\test.ps1
+powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
+powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1
+powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
+~~~
 
-作用：
+## 发布包边界
 
-- 校验 `config/app.yaml`、`policy.yaml`、`tools.yaml`、`llm.yaml`（含 `llm.local.yaml` 覆盖）的必要字段、类型和取值范围。
-- `disabled_tools` 中的未知工具名、空 API Key 等以 warning 提示，不阻断。
-- 追加 `--json` 输出完整 JSON 报告；存在 error 时退出码为 1。
+`package.ps1` 只收集 README、pyproject、公共 config、demo、当前 docs、scripts、src、tests 和 web。以下内容被排除：
 
-跨平台等价命令：
+- `data/` 全部运行态数据；
+- `config/llm.local.yaml`；
+- `.env`；
+- `.git/`、`dist/`、`__pycache__/` 和 pyc。
 
-```powershell
-$env:PYTHONPATH='src'
-python -m safeops_agent.config_check
-```
+`verify-package.ps1` 会重新打开 ZIP，检查当前文档、核心源码、测试、脚本、包内资源和禁止路径。
+
+## 脚本退出状态
+
+- 测试、配置、冒烟、验收、打包校验成功返回 0；
+- Agent 拒绝 HIGH 或等待 MEDIUM 确认时 CLI 返回 1，这是可由 acceptance 断言的业务状态；
+- PowerShell 脚本启用 `$ErrorActionPreference = "Stop"`，外部步骤失败会中止。

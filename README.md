@@ -1,100 +1,113 @@
 # 面向麒麟操作系统的安全智能运维 Agent
 
-本项目用于中国软件杯赛题 1 A 组：面向麒麟操作系统的安全智能运维 Agent 设计与实现。
+SafeOps Agent 是中国软件杯赛题 1 A 组作品。它把自然语言请求映射到固定白名单工具，并在本地策略、一次性确认令牌和签名审计的约束下执行运维动作。
 
 核心能力：
 
-- 自然语言输入（DeepSeek 大模型意图理解，离线自动回退规则匹配）
-- 意图风险过滤（输入与模型输出双向护栏）
-- 安全策略判断（低风险直执行 / 中风险确认令牌 / 高风险拒绝）
-- 最小权限工具调用（19+ 白名单工具，禁任意 shell）
-- 五步思维链审计 + 哈希链防篡改审计日志
-- 标准 MCP 协议 stdio 服务端（JSON-RPC 2.0）
-- 一次性确认令牌：预演与执行严格一致，限时、绑定会话
-- 受管工作区文件变更：写前快照、真实回滚
+- DeepSeek 意图理解，可无网络回退到确定性规则路由；
+- 25 个固定工具，无任意 Shell、无模型直执行通道；
+- LOW 只读直行、MEDIUM 预演后凭一次性令牌确认、HIGH 默认拒绝；
+- 服务变更白名单、关键系统服务保护和 Linux root 运行保护；
+- 受管文件写前快照、原子写入和真实回滚；
+- 结构化决策轨迹；历史字段 `reasoning_chain` 仅承载可审计决策事实，不是模型隐藏思维过程；
+- SHA-256 链、HMAC 签名、持久化锚点、轮转校验和敏感字段脱敏；
+- MCP `2025-11-25` stdio 服务端与带会话认证的 Web 工作台；
+- wheel 内置默认配置和 Web 静态资源，可脱离源码目录运行。
 
-## 运行方式
+## 快速开始
 
-如果你是第一次运行，优先阅读：
+需要 Python 3.10 或更高版本。
 
-- [新手全流程操作手册](docs/BEGINNER_OPERATION_MANUAL.md)
-- [初赛提交说明](docs/INITIAL_SUBMISSION.md)
-- [赛题要求完成度矩阵](docs/COMPLETION_MATRIX.md)
-- [麒麟系统实机验证清单](docs/KYLIN_VALIDATION_CHECKLIST.md)
-- [后续完善 TODO List](docs/TODO_LIST.md)
-- [功能完善与亮点优化总表](docs/FEATURE_HIGHLIGHTS_PLAN.md)
-- [答辩演示脚本](docs/DEMO_SCRIPT.md)
-- [开发脚本说明](docs/SCRIPTS.md)
+~~~powershell
+cd "C:\Users\CanhuiBao\Desktop\中国软件杯"
+python -m pip install -e .
+$env:SAFEOPS_LLM_DISABLED='1'
 
-在项目目录执行：
+safeops-agent "查看系统信息"
+safeops-agent "查看CPU和内存"
+safeops-agent "查看监听端口"
+~~~
 
-```powershell
+也可以不安装，直接从源码运行：
+
+~~~powershell
 $env:PYTHONPATH='src'
+$env:SAFEOPS_LLM_DISABLED='1'
 python -m safeops_agent.cli "查看系统信息"
-python -m safeops_agent.cli "查看CPU和内存"
-python -m safeops_agent.cli "分析最近系统错误日志"
-python -m safeops_agent.cli "删除根目录所有文件"      # 高风险，直接拒绝
-python -m safeops_agent.cli "重启 nginx 服务"         # 中风险，返回 dry-run 计划 + 确认令牌
-python -m safeops_agent.cli --confirm <令牌>          # 凭令牌精确执行已预演的动作
-python -m safeops_agent.cli --verify-audit            # 校验审计日志哈希链完整性
-```
+~~~
 
-启用大模型意图理解：复制 `config/llm.local.yaml.example` 为 `config/llm.local.yaml` 并填入 API Key（详见 [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md)）。设置环境变量 `SAFEOPS_LLM_DISABLED=1` 可强制离线规则模式。
+## 风险与确认
 
-启动标准 MCP stdio 服务端（供 MCP 客户端接入）：
+中风险请求首次只生成 dry-run 计划和十分钟有效的一次性令牌：
 
-```powershell
+~~~powershell
+python -m safeops_agent.cli "重启 nginx 服务" --json
+python -m safeops_agent.cli --confirm <ACTION_ID> --json
+~~~
+
+令牌绑定会话和当时保存的工具参数；确认阶段不重新运行意图识别。服务 start/stop/restart 只允许 `config/tools.yaml` 中的白名单服务，保护列表中的安全基础服务始终拒绝变更。
+
+高风险请求直接拒绝：
+
+~~~powershell
+python -m safeops_agent.cli "覆盖 /etc/passwd" --json
+~~~
+
+被拒绝或等待确认时 CLI 返回非零退出码，便于脚本正确识别执行状态。
+
+## 大模型配置
+
+复制 `config/llm.local.yaml.example` 为 `config/llm.local.yaml`，填入 `llm_api_key`。私密本地配置和全部 `data/` 运行态文件都不会进入 Git 或发布包。也可以使用环境变量 `LLM_API_KEY`。
+
+设置 `SAFEOPS_LLM_DISABLED=1` 会强制使用离线规则模式。模型只选择候选工具和提取参数，本地策略拥有最终裁决权。
+
+## Web 与 MCP
+
+启动本机 Web 工作台：
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts\web.ps1
+~~~
+
+默认地址是 `http://127.0.0.1:8765`。非回环地址必须启用认证并设置 `SAFEOPS_TOKEN`；浏览器登录后使用 HttpOnly 会话 Cookie。
+
+启动 MCP stdio 服务：
+
+~~~powershell
+safeops-mcp
+~~~
+
+客户端必须依次完成 `initialize`、`notifications/initialized`，之后才能调用 `tools/list` 和 `tools/call`。中风险 MCP 调用通过 `safeops.confirm` 消费一次性令牌。
+
+## 验证
+
+~~~powershell
 $env:PYTHONPATH='src'
-python -m safeops_agent.mcp_stdio
-```
-
-运行测试：
-
-```powershell
-$env:PYTHONPATH='src'
-python -m unittest discover -s tests
-```
-
-
-一键验收：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
-```
-
-生成提交包：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1
-```
-
-生成自动验收报告：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\report.ps1
-```
-
-运行 Web 冒烟测试：
-
-```powershell
+$env:SAFEOPS_LLM_DISABLED='1'
+python -W error::ResourceWarning -m unittest discover -s tests
+python -m safeops_agent.config_check
+python -m safeops_agent.cli --verify-audit
 powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
-```
-
-校验提交包：
-
-```powershell
+powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1
 powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
-```
-审计日志默认写入：
+~~~
 
-```text
-data/audit.log
-```
+当前自动化套件包含 196 项测试。软件级验收在 Windows/Python 3.14 环境执行；本次验收范围不包含硬件或麒麟实机执行。
 
-## 当前限制
+## 文档
 
-- 大模型意图理解已接入（DeepSeek，OpenAI 兼容接口），无 Key/无网络时自动回退本地规则，功能不中断。
-- MCP 已实现标准 JSON-RPC 2.0 stdio 协议服务端（initialize/tools/list/tools/call/ping），如需官方 SDK 形态可平滑替换传输层。
-- 服务生命周期操作（start/stop/restart）在麒麟/Linux 环境真实执行 systemctl；Windows 开发环境返回预告文本。真实麒麟实机验证仍待执行（见 docs/KYLIN_VALIDATION_CHECKLIST.md）。
-- 最小权限执行器（专用低权用户 + sudo 白名单）已有设计，需在麒麟实机落地。
-- 高风险操作默认拒绝；中风险操作需凭一次性确认令牌（或 --yes）确认后才执行。
+- [架构设计](docs/ARCHITECTURE.md)
+- [设计技术文档](docs/DESIGN_TECHNICAL_DOCUMENT.md)
+- [新手操作手册](docs/BEGINNER_OPERATION_MANUAL.md)
+- [部署文档](docs/DEPLOYMENT.md)
+- [安全护栏](docs/SAFETY_GUARDRAILS.md)
+- [MCP 接入](docs/MCP_TOOLS.md)
+- [大模型接入](docs/LLM_INTEGRATION.md)
+- [测试方案与报告](docs/TEST_PLAN_AND_REPORT.md)
+- [答辩演示脚本](docs/DEMO_SCRIPT.md)
+- [脚本参考](docs/SCRIPTS.md)
+- [错误码字典](docs/ERROR_CODES.md)
+- [开发任务时间线](docs/DEVELOPMENT_LOG.md)
+
+运行数据默认写入 `data/`。审计日志、签名密钥、锚点、确认令牌密钥和受管文件均属于运行态数据，不进入版本库与提交包。

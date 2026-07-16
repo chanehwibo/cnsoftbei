@@ -1,194 +1,107 @@
 # 部署文档
 
-## 1. 环境要求
+## 1. 环境
 
-最低要求：
+- Python 3.10 或更高版本；
+- Windows PowerShell 用于仓库脚本；
+- 麒麟/Linux 上的系统采集命令由固定工具调用；
+- PyYAML 由项目依赖自动安装。
 
-- Python 3.10+
-- 可访问项目源码目录
+## 2. 开发态安装
 
-开发环境已验证：
+~~~powershell
+git clone https://github.com/chanehwibo/cnsoftbei.git
+cd cnsoftbei
+python -m pip install -e .
+python -m safeops_agent.config_check
+~~~
 
-- Windows 10
-- Python 3.14.3
+离线运行：
 
-目标环境：
+~~~powershell
+$env:SAFEOPS_LLM_DISABLED='1'
+safeops-agent "查看系统信息"
+~~~
 
-- 麒麟操作系统
-- systemd
-- journalctl
-- rpm 或 dpkg-query
+## 3. wheel 安装
 
-## 2. 获取项目
+~~~powershell
+python -m pip wheel . --no-deps --wheel-dir dist
+python -m pip install dist\safeops_agent-0.1.0-py3-none-any.whl
+~~~
 
-项目目录：
+wheel 包含默认 `config/*.yaml` 与 `web/*`。安装后从任意可写工作目录启动即可；相对运行路径写入当前工作目录的 `data/`。可用 `SAFEOPS_PROJECT_ROOT` 显式指定配置覆盖和数据根目录。
 
-```text
-C:\Users\CanhuiBao\Desktop\中国软件杯
-```
+## 4. 配置
 
-进入目录：
+| 文件 | 内容 |
+| --- | --- |
+| `config/app.yaml` | 审计路径、Web 地址、端口和认证要求 |
+| `config/policy.yaml` | 高危关键词与敏感路径 |
+| `config/tools.yaml` | 工具默认值、服务允许列表和保护列表 |
+| `config/llm.yaml` | 公共模型配置 |
+| `config/llm.local.yaml` | 本机 API Key，不入库、不打包 |
 
-```powershell
-cd C:\Users\CanhuiBao\Desktop\中国软件杯
-```
+运行 `python -m safeops_agent.config_check` 校验配置。安装态缺少外部配置时使用 wheel 内默认值；工作目录中同名文件优先。
 
-## 3. Windows 开发环境运行
+## 5. Linux 服务权限
 
-设置模块路径：
+服务 start/stop/restart 同时受以下边界约束：
 
-```powershell
-$env:PYTHONPATH='src'
-```
+1. 服务名必须符合安全标识符格式；
+2. 服务必须位于 `service_allowlist`；
+3. 服务不得位于 `protected_services`；
+4. 策略要求一次性令牌；
+5. Linux 以 root 运行时默认拒绝服务变更。
 
-运行 CLI：
+如果部署环境经过独立权限评审并必须以 root 运行，可显式设置 `SAFEOPS_ALLOW_ROOT_SERVICE_ACTIONS=1`。推荐使用专用低权限账号，并只授予所需 systemctl 单元权限。
 
-```powershell
-python -m safeops_agent.cli "查看系统信息"
-python -m safeops_agent.cli "查看监听端口" --json
-python -m safeops_agent.cli "覆盖 /etc/passwd" --json
-```
+## 6. Web 部署
 
-运行测试：
+本机：
 
-```powershell
-python -m unittest discover -s tests
-```
+~~~powershell
+safeops-agent "查看系统信息"
+powershell -ExecutionPolicy Bypass -File scripts\web.ps1
+~~~
 
-## 4. 麒麟/Linux 环境部署
+非回环监听时，把 `web_host` 改为目标地址、`require_auth` 设为 `true`，并设置强随机 `SAFEOPS_TOKEN`。HTTPS 反向代理下设置 `SAFEOPS_HTTPS=1`，使会话 Cookie 带 `Secure`。
 
-进入项目目录：
+可选变量：
 
-```bash
-cd /path/to/china-software-cup
-```
+- `SAFEOPS_CORS_ORIGIN`：明确允许的跨域来源；
+- `SAFEOPS_ACCESS_LOG=1`：启用访问日志；
+- `SAFEOPS_HTTPS=1`：标记安全 Cookie。
 
-设置模块路径：
+## 7. MCP 部署
 
-```bash
-export PYTHONPATH=src
-```
+~~~powershell
+safeops-mcp
+~~~
 
-验证 Python：
+MCP 使用 stdin/stdout，一行一条 JSON-RPC 2.0 消息。不要把调试文字写到 stdout。协议版本和生命周期见 [MCP_TOOLS.md](MCP_TOOLS.md)。
 
-```bash
-python3 --version
-```
+## 8. 数据保护与备份
 
-运行 CLI：
+`data/` 包含运行日志、HMAC 密钥、锚点、加密待确认记录、受管文件与快照。部署时：
 
-```bash
-python3 -m safeops_agent.cli "查看系统信息" --json
-python3 -m safeops_agent.cli "查看错误日志" --json
-python3 -m safeops_agent.cli "查看 nginx 服务状态" --json
-python3 -m safeops_agent.cli "查询 nginx 软件包" --json
-```
+- 目录仅授予服务账号读写；
+- 审计日志与对应 `.key`、`.anchor.json` 一起备份；
+- 不把 `data/` 复制进镜像、Git 或提交包；
+- 可通过 `SAFEOPS_AUDIT_HMAC_KEY` 和 `SAFEOPS_PENDING_KEY` 由外部密钥系统注入稳定密钥；
+- 恢复后运行 `safeops-agent --verify-audit`。
 
-运行测试：
+## 9. 健康检查
 
-```bash
-python3 -m unittest discover -s tests
-```
+~~~text
+GET /api/health
+~~~
 
-## 5. 审计日志
+自动验证：
 
-默认路径：
-
-```text
-data/audit.log
-```
-
-自定义路径：
-
-```powershell
-python -m safeops_agent.cli "查看系统信息" --audit-log data/demo-audit.log
-```
-
-查看最近日志：
-
-```powershell
-Get-Content .\data\audit.log -Encoding utf8 -Tail 10
-```
-
-Linux：
-
-```bash
-tail -n 10 data/audit.log
-```
-
-## 6. Web 工作台
-
-Web 工作台使用 Python 标准库启动，不需要安装额外依赖。
-
-Windows：
-
-```powershell
-$env:PYTHONPATH='src'
-python -m safeops_agent.web_server
-```
-
-Linux：
-
-```bash
-export PYTHONPATH=src
-python3 -m safeops_agent.web_server
-```
-
-默认访问：
-
-```text
-http://127.0.0.1:8765
-```
-
-## 7. MCP 工具调用
-
-当前提供 MCP 风格 facade：
-
-```powershell
-python -c "import sys,json; sys.path.insert(0,'src'); from safeops_agent.mcp_server import McpToolService; print(json.dumps(McpToolService().list_tools(), ensure_ascii=False, indent=2))"
-```
-
-后续替换为官方 MCP SDK 时，应保持：
-
-- 工具注册表不变。
-- `PolicyEngine` 继续作为本地强制策略。
-- `AuditLogger` 继续记录工具调用。
-
-## 8. 常见问题
-
-### 8.1 找不到模块
-
-确认已设置：
-
-```powershell
-$env:PYTHONPATH='src'
-```
-
-或 Linux：
-
-```bash
-export PYTHONPATH=src
-```
-
-### 8.2 中文乱码
-
-PowerShell：
-
-```powershell
-chcp 65001
-```
-
-### 8.3 Linux 命令不存在
-
-检查：
-
-```bash
-which systemctl
-which journalctl
-which ss
-which rpm
-```
-
-### 8.4 权限不足
-
-当前 MVP 以只读工具为主。后续中风险操作需要配置独立 executor 和 sudo 白名单。
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
+powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
+~~~
+
+本次软件验收不包含硬件或麒麟实机执行。

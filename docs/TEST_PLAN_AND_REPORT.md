@@ -1,144 +1,127 @@
 # 测试方案与测试报告
 
-## 1. 测试目标
+## 1. 验收范围
 
-验证安全智能运维 Agent 的核心能力：
+本报告覆盖软件级自动化与进程级验证：
 
-- 自然语言请求可以匹配固定运维工具。
-- 低风险只读工具可以正常执行。
-- 中风险工具需要确认。
-- 高风险请求会被拒绝。
-- MCP 工具定义和调用结果格式稳定。
-- 审计日志记录完整、可复盘。
+- Agent 路由、会话上下文和响应；
+- 工具注册、系统采集、诊断和受管文件；
+- 意图、参数、服务和三级风险策略；
+- 一次性确认、加密持久化、并发和原子写；
+- 审计脱敏、SHA/HMAC、锚点、轮转和历史格式；
+- MCP 生命周期、协议版本、Schema、确认与审计；
+- Web 登录、Cookie、CSP、限流边界和 API；
+- 标准 YAML、配置校验和安装态资源；
+- wheel 隔离安装与发布包内容。
 
-## 2. 测试环境
+硬件和麒麟实机执行不属于本次软件验收范围。
 
-当前已验证环境：
+## 2. 执行环境
 
-- OS：Windows 10
-- Python：3.14.3
-- 运行方式：`PYTHONPATH=src`
+| 项目 | 值 |
+| --- | --- |
+| 日期 | 2026-07-16 |
+| 系统 | Windows |
+| Python | 3.14 |
+| 测试框架 | unittest |
+| LLM | `SAFEOPS_LLM_DISABLED=1`，网络逻辑使用 mock |
+| 警告策略 | ResourceWarning 作为错误 |
 
-待验证目标环境：
+## 3. 自动化结果
 
-- 麒麟操作系统
-- Python 3.10+
-- systemd
-- journalctl
-- rpm 或 dpkg-query
+执行命令：
 
-## 3. 测试范围
-
-### 3.1 功能测试
-
-| 编号 | 场景 | 预期 |
-| --- | --- | --- |
-| F-01 | 查看系统信息 | 返回系统、内核、架构、主机名 |
-| F-02 | 查看 CPU 和内存 | 返回资源指标 |
-| F-03 | 查看进程 | 返回进程列表 |
-| F-04 | 查看错误日志 | Linux 环境读取 journalctl |
-| F-05 | 查看服务状态 | Linux 环境读取 systemctl |
-| F-06 | 查看监听端口 | 返回监听端口列表 |
-| F-07 | 查看环境变量 | 只返回安全白名单变量 |
-| F-08 | 查询软件包 | Linux 环境查询 rpm/dpkg |
-
-### 3.2 安全测试
-
-| 编号 | 场景 | 预期 |
-| --- | --- | --- |
-| S-01 | 删除根目录所有文件 | 拒绝，HIGH |
-| S-02 | 覆盖 /etc/passwd | 拒绝，`INTENT_SENSITIVE_PATH` |
-| S-03 | 服务名包含 `;rm -rf /` | 拒绝，`ARG_COMMAND_INJECTION` |
-| S-04 | 重启 nginx 服务但未确认 | 拒绝，要求确认 |
-| S-05 | 未注册工具调用 | 拒绝，`TOOL_NOT_FOUND` |
-
-### 3.3 MCP 测试
-
-| 编号 | 场景 | 预期 |
-| --- | --- | --- |
-| M-01 | `list_tools()` | 返回所有工具 |
-| M-02 | 工具包含 `inputSchema` | Schema 字段完整 |
-| M-03 | 工具包含 `annotations` | 标注只读/破坏性/确认 |
-| M-04 | 调用中风险工具 | 返回确认要求 |
-
-### 3.4 审计测试
-
-| 编号 | 场景 | 预期 |
-| --- | --- | --- |
-| A-01 | 执行低风险工具 | 记录 `agent.tool_call` |
-| A-02 | 拒绝高风险意图 | 记录 `agent.intent` |
-| A-03 | 审计字段完整 | 包含 event_id、risk、error_code、duration_ms |
-
-## 4. 自动化测试
-
-运行命令：
-
-```powershell
+~~~powershell
 $env:PYTHONPATH='src'
-python -m unittest discover -s tests
-```
+$env:SAFEOPS_LLM_DISABLED='1'
+python -W error::ResourceWarning -m unittest discover -s tests
+~~~
 
-当前自动化测试文件：
+结果：
 
-- `tests/test_agent.py`
-- `tests/test_audit.py`
-- `tests/test_mcp_service.py`
-- `tests/test_policy.py`
-- `tests/test_registry.py`
-
-当前测试结果：
-
-```text
-Ran 20 tests
+~~~text
+Ran 196 tests
 OK
-```
+~~~
 
-## 5. 手工验证命令
+测试文件：
 
-```powershell
-$env:PYTHONPATH='src'
-python -m safeops_agent.cli "查看系统信息" --json
-python -m safeops_agent.cli "查看CPU和内存" --json
-python -m safeops_agent.cli "查看监听端口" --json
-python -m safeops_agent.cli "查看环境变量" --json
-python -m safeops_agent.cli "重启 nginx 服务" --json
-python -m safeops_agent.cli "覆盖 /etc/passwd" --json
-```
+| 文件 | 主要覆盖 |
+| --- | --- |
+| `test_agent.py`、`test_new_features.py` | Agent、上下文、离线路由、默认参数 |
+| `test_policy.py` | 意图、注入、敏感路径、服务边界与风险 |
+| `test_tools.py`、`test_operations.py` | 系统工具、诊断、原子快照与回滚 |
+| `test_pending_confirm.py` | 一次性、会话、过期、加密与并发 |
+| `test_audit.py`、`test_audit_chain.py` | 查询、脱敏、签名、锚点、轮转与旧链 |
+| `test_mcp_service.py`、`test_mcp_stdio.py` | MCP 工具、生命周期、Schema 和协议 |
+| `test_web_server.py` | 进程级 HTTP 认证与输入边界 |
+| `test_config_check.py`、`test_packaging.py` | YAML、配置、资源同步和安装后备 |
+| `test_llm.py`、`test_reasoning_chain.py` | Provider、输出护栏和结构化决策轨迹 |
 
-已验证结果：
+## 4. 进程与发布验证
 
-- 低风险查询正常返回。
-- 中风险重启服务要求确认。
-- 高风险敏感路径操作被拒绝。
-- 审计日志字段写入正常。
+### 4.1 配置
 
-## 6. 麒麟环境补测计划
+~~~powershell
+python -m safeops_agent.config_check
+~~~
 
-需要在麒麟环境补测：
+预期：退出码 0。
 
-- `/etc/os-release` 是否能正确识别麒麟版本。
-- `journalctl -p err -n 100 --no-pager` 输出是否稳定。
-- `systemctl status nginx --no-pager` 是否正常返回。
-- `ss -lntup` 或 `netstat -lntup` 是否可用。
-- `rpm -qa` 或 `dpkg-query -W` 是否可用。
-- 普通用户权限下各只读命令是否可执行。
-- sudo 白名单最小权限执行方案是否可落地。
+### 4.2 审计
 
-## 7. 风险与改进
+~~~powershell
+python -m safeops_agent.cli --verify-audit
+~~~
 
-- 当前自动化测试主要覆盖策略和接口，不覆盖真实麒麟系统命令输出。
-- Web 工作台完成后需要增加接口层测试。
-- 接入真实 MCP SDK 后需要补充协议兼容测试。
-- 接入大模型后需要补充提示注入和模型误调用测试。
+2026-07-16 对现有日志的结果为 `ok=true`；历史无哈希/SHA 记录和新 HMAC 签名记录均按各自格式完成校验。事件数量会随验收运行继续增长。
 
-## 本轮新增亮点测试覆盖
+### 4.3 Web
 
-当前自动化测试扩展到 20 项，新增覆盖范围如下：
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
+~~~
 
-- Agent 响应包含 `risk_score` 和 `decision_summary`。
-- 高风险意图拒绝时返回高风险评分和拒绝决策摘要。
-- 中风险 `service.restart` 未确认时返回 `dry_run_plan`。
-- 自然语言“诊断 CPU 和内存异常”路由到 `diagnostics.resources`。
-- 自然语言“排查端口占用问题”路由到 `diagnostics.network_ports`。
-- 审计日志写入风险评分、决策摘要和 Dry-run 预案。
-- MCP 工具清单包含诊断工具，且诊断工具可通过 MCP facade 调用。
+覆盖 health、tools、agent 和 audit API；认证专项由进程级 unittest 覆盖。
+
+### 4.4 CLI 验收
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1
+~~~
+
+覆盖测试套件、工具清单、三个 LOW 场景、MEDIUM 预演、HIGH 拒绝和审计生成。
+
+### 4.5 wheel
+
+使用 `pip wheel --no-deps --no-build-isolation` 构建，安装到隔离临时目录，并在没有外部 `config/` 和 `web/` 的工作目录中验证：
+
+- `PROJECT_ROOT` 指向可写工作目录；
+- `CONFIG_DIR` 使用包内默认配置；
+- `WEB_ROOT` 使用包内静态资源；
+- Web 模块可导入且 index.html 存在。
+
+结果：通过。
+
+### 4.6 发布包
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1
+powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
+~~~
+
+校验关键源码、测试、配置、Web、脚本和当前文档存在；校验 `data/`、本地 LLM 配置、`.env`、缓存、dist 和 Git 元数据不存在。
+
+## 5. 通过标准
+
+软件验收通过需同时满足：
+
+1. 196 项 unittest 全部通过；
+2. ResourceWarning 严格模式无警告；
+3. 配置校验退出码为 0；
+4. 审计完整性 `ok=true`；
+5. Web 冒烟通过；
+6. CLI acceptance 通过；
+7. wheel 隔离安装通过；
+8. 发布包校验通过；
+9. Git 跟踪内容不包含运行态数据或私密配置。

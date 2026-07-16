@@ -1,235 +1,122 @@
-# 安全护栏设计文档
+# 安全护栏
 
-## 1. 设计目标
+## 1. 信任边界
 
-智能运维 Agent 的核心风险来自模型输出不可控、系统命令破坏性强、操作结果难以回滚。本项目采用多层安全护栏，确保 Agent 只能在受控范围内感知系统和执行任务。
+以下输入都按不可信处理：
 
-目标：
+- 用户自然语言；
+- LLM 返回的工具、参数、追问和选择说明；
+- CLI、Web 与 MCP 的结构化参数；
+- 待确认动作文件；
+- 审计文件与锚点；
+- 工作目录中的外部配置。
 
-- 阻止高风险自然语言意图进入执行链路。
-- 阻止模型或用户构造任意 shell 命令。
-- 对中风险操作要求显式确认。
-- 对所有请求和决策过程进行审计。
-- 为后续最小权限执行和人工审批扩展保留接口。
+只有注册表中的固定 handler 可以触达操作系统。
 
-## 2. 护栏分层
+## 2. 输入护栏
 
-```text
-自然语言请求
-  |
-意图风险过滤
-  |
-工具白名单匹配
-  |
-参数校验
-  |
-工具风险分级
-  |
-确认/拒绝/执行
-  |
-审计日志
-```
+Agent 在模型调用前执行：
 
-## 3. 意图风险过滤
+1. 2000 字符输入上限；
+2. 高危关键词匹配；
+3. 危险动作与敏感路径组合匹配；
+4. ASCII 关键词边界检查，避免普通单词子串误报。
 
-实现位置：`src/safeops_agent/security/policy.py`
+命中后返回 HIGH 和明确错误码，不调用模型、不选择工具、不执行 handler。
 
-高风险关键词包括：
+## 3. 模型输出护栏
 
-- 磁盘破坏：`mkfs`、`dd if=`、`格式化`、`清空磁盘`
-- 系统破坏：`关机`、`重启系统`、`重装系统`
-- 文件破坏：`rm -rf`、`递归删除`、`删除系统文件`
-- 权限破坏：`chmod -R`、`chmod 777`、`chown -R`
-- 安全绕过：`关闭防火墙`、`禁用审计`、`提权`
-- 账户风险：`修改 root`、`删除用户`、`新增管理员`
+模型只返回候选工具、对象参数、一句话选择说明和可选追问。输出文本被截断并通过同一高危意图检查；命中时替换为安全提示。
 
-命中后返回：
+工具名必须已经注册。参数继续通过 MCP Schema 或策略层校验。模型不能：
 
-- `allowed=false`
-- `risk=HIGH`
-- `error_code=INTENT_HIGH_RISK_KEYWORD`
+- 新增工具；
+- 生成任意 Shell；
+- 把 MEDIUM 改成 LOW；
+- 跳过一次性令牌；
+- 修改服务允许或保护列表。
 
-## 4. 敏感路径保护
+## 4. 参数护栏
 
-敏感路径包括：
+除受管文件的 `content` 数据字段外，参数拒绝 `;&|`、反引号、`$<>`、控制字符和换行。服务、软件包和文件名使用白名单字符。
 
-- `/`
-- `/etc`
-- `/boot`
-- `/usr`
-- `/bin`
-- `/sbin`
-- `/var/lib`
-- `/root`
-- `C:\Windows`
+中高风险参数命中敏感路径时拒绝。`file.apply` 的内容不当作命令解析，但文件名必须是单段安全标识符，目标固定在 `data/managed/`。
 
-当请求同时包含破坏性动作和敏感路径时，系统直接拒绝。
+## 5. 服务权限边界
 
-示例：
+`service.start`、`service.stop` 和 `service.restart` 必须满足：
 
-```text
-覆盖 /etc/passwd -> INTENT_SENSITIVE_PATH
-删除 /boot 目录 -> INTENT_HIGH_RISK_KEYWORD 或 INTENT_SENSITIVE_PATH
-```
+- 服务位于 `service_allowlist`；
+- 服务不在 `protected_services`；
+- 名称通过安全标识符校验；
+- 有本会话的一次性确认令牌；
+- 确认后策略复核仍允许；
+- Linux root 默认拒绝，除非显式设置 `SAFEOPS_ALLOW_ROOT_SERVICE_ACTIONS=1`。
 
-## 5. 工具白名单
+默认保护 auditd、firewalld、iptables、nftables、sshd 和 systemd-logind。handler 不使用 Shell 拼接，固定参数调用 systemctl，并返回前后 active 状态。
 
-Agent 不提供任意命令执行工具，只能调用 `ToolRegistry` 中注册的固定工具。
+## 6. 一次性确认
 
-工具注册内容包括：
+首次 MEDIUM 请求只保存经裁决的 `tool + args`，同时返回 dry-run 与随机 `action_id`。记录：
 
-- 工具名
-- 描述
-- 风险等级
-- 参数 Schema
-- 必填参数
-- 分类
-- 固定 handler
+- 十分钟过期；
+- 绑定入口会话；
+- 加密保存并附 HMAC；
+- 跨线程、跨进程锁保护；
+- 合法消费后删除；
+- 错误会话尝试不销毁合法令牌；
+- 确认阶段不重新解释自然语言；
+- 执行前重新应用最新策略。
 
-优势：
+CLI、Web 和 MCP 没有布尔确认后门。
 
-- 模型不能自由拼接 shell 命令。
-- 工具行为可测试、可审计、可复盘。
-- 权限控制可以按工具粒度落地。
+## 7. 文件事务
 
-## 6. 参数校验
+受管文件采用以下顺序：
 
-参数层拦截以下风险字符：
+1. 获取线程与进程锁；
+2. 按 UTF-8 字节数检查 64 KiB 上限；
+3. 用时间戳和 UUID 创建唯一快照；
+4. 原子写入快照；
+5. 原子更新快照索引；
+6. 原子替换目标；
+7. 返回可执行的 rollback 描述。
 
-```text
-; & | ` $ < >
-```
+rollback 同样在锁内原子恢复字节；写入前不存在的目标会被删除。
 
-服务名允许字符：
+## 8. Web 边界
 
-```text
-a-z A-Z 0-9 @ _ . -
-```
+- 非回环监听要求 `SAFEOPS_TOKEN`；
+- 登录生成随机 HttpOnly、SameSite=Strict Cookie；
+- HTTPS 模式增加 Secure；
+- API 可用 Bearer Token；
+- SSE 不接受查询字符串令牌；
+- 请求体最大 64 KiB 且 JSON 根节点必须为对象；
+- 单 IP 每分钟限流；
+- CSP、frame deny、nosniff 与 Referrer-Policy；
+- 每会话独立 Agent 上下文和互斥锁。
 
-软件包名允许字符：
+## 9. MCP 边界
 
-```text
-a-z A-Z 0-9 + _ . : -
-```
+- 必须完成 initialize/initialized 生命周期；
+- JSON-RPC 版本、方法与参数对象严格检查；
+- inputSchema 检查必填、类型、范围、枚举、长度、模式和额外字段；
+- 工具层拒绝通过 `structuredContent.error_code` 返回；
+- MEDIUM 首次调用签发令牌，`safeops.confirm` 执行；
+- 每次调用和确认进入统一签名审计。
 
-参数不合法时，不进入工具 handler。
+## 10. 审计边界
 
-稳定错误码：
+写盘前递归脱敏密码、secret、API Key、Authorization、credential、private key、文件内容和确认令牌。字符串中的 `sk-...`、Bearer 和常见 `key=value` 形式也会清洗。
 
-- `ARG_COMMAND_INJECTION`
-- `ARG_SERVICE_REQUIRED`
-- `ARG_SERVICE_INVALID`
-- `ARG_PACKAGE_INVALID`
-- `ARG_SENSITIVE_PATH`
+新事件使用 SHA-256 链、HMAC 和持久化锚点；轮转段分别锚定。验证器严格校验旧 SHA 格式并只允许它出现在新签名链头部。密钥文件和全部 `data/` 不进入 Git 或发布包。
 
-## 7. 风险分级与审批
+## 11. 验证命令
 
-风险等级：
-
-- `LOW`：只读查询，自动执行。
-- `MEDIUM`：可能改变服务状态，需要确认。
-- `HIGH`：可能造成数据破坏、越权或系统不可用，默认拒绝。
-
-当前中风险工具：
-
-- `service.restart` / `service.start` / `service.stop`
-- `file.apply` / `file.rollback`（限受管工作区，写前快照、可真实回滚）
-
-确认方式（推荐：一次性确认令牌）：
-
-```powershell
-# 第一步：预演。返回 dry-run 计划和确认令牌 pending_action_id
-python -m safeops_agent.cli "重启 nginx 服务"
-# 第二步：凭令牌精确执行当初裁决过的动作（不重跑意图理解）
-python -m safeops_agent.cli --confirm <pending_action_id>
-```
-
-兼容方式：`--yes` 重跑意图理解后放行（存在 LLM 非确定性导致预演与执行不一致的理论窗口，故推荐令牌方式）。
-
-确认令牌的安全属性：
-
-- 一次性：使用即作废，不可重放；
-- 限时：默认 10 分钟过期；
-- 会话绑定：跨会话（CLI/不同浏览器会话）出示令牌直接拒绝；
-- 确认后策略复核：执行前重新过一遍参数校验与风险裁决，策略保留最终否决权。
-
-确认放行后，服务生命周期操作在麒麟/Linux 环境真实执行 `systemctl <action> <service>`（Windows 开发环境返回预告文本），执行结果附带逆操作建议（rollback 字段）。
-
-## 7.1 LLM 输出侧护栏
-
-LLM 的 `clarification`（追问文本）与 `reasoning`（推理说明）会展示给运维人员并写入审计。为防提示注入借模型之口输出诱导性指令（如"请手动执行 rm -rf …"），模型输出与用户输入过同一套高风险意图筛查，命中即整体屏蔽，并统一截断超长文本。LLM 调用失败会在思维链中留下回退原因，而不是静默降级。
-
-## 7.2 会话隔离
-
-Web 端按 `X-Session-Id` 为每个浏览器会话维护独立 Agent 实例：对话历史、指代上下文（"重启它"）互不串扰，确认令牌与会话绑定；各会话独立加锁，一个会话的慢 LLM 调用不阻塞其他会话。
-
-## 8. 最小权限执行设计
-
-当前实现：
-
-- 只读工具默认使用当前进程权限。
-- 不开放任意 shell。
-- 中风险工具暂不执行真实变更。
-
-后续落地：
-
-- Agent 主进程使用普通用户运行。
-- 特权操作交给独立 executor。
-- executor 使用 sudo 白名单，仅允许固定命令模板。
-- 每个中风险/高风险操作绑定审批记录。
-
-示例 sudo 白名单目标：
-
-```text
-safeops ALL=(root) NOPASSWD: /bin/systemctl restart nginx.service
-```
-
-## 9. 审计追踪
-
-审计日志位置：`data/audit.log`
-
-每条审计事件记录：
-
-- 用户请求、会话标识
-- 匹配工具与参数
-- 风险等级、风险评分、是否允许、原因、稳定错误码
-- 意图来源（llm/rule）与可回放的五步思维链（指代解析 → 意图筛查 → 工具选择 → 风险裁决 → 执行）
-- 确认令牌 ID（涉及确认流程时）
-- 执行耗时与结果摘要
-
-审计记录的是结构化、可复盘的决策链，而非模型的隐藏原始推理，避免泄露内部提示词和敏感上下文。
-
-### 9.1 哈希链防篡改
-
-每条事件包含 `prev_hash`（上一条事件的哈希）与 `entry_hash`（本条事件含 prev_hash 的 SHA-256）。修改任何历史事件的内容、删除或重排中间事件都会破坏链条。
-
-校验方式：
-
-```powershell
+~~~powershell
+$env:PYTHONPATH='src'
+$env:SAFEOPS_LLM_DISABLED='1'
+python -W error::ResourceWarning -m unittest discover -s tests
 python -m safeops_agent.cli --verify-audit
-```
-
-Web 端：`GET /api/audit/verify`。日志轮转后新文件从创世哈希重新起链；哈希链启用前的存量事件计为 legacy，仅允许出现在文件头部。
-
-## 10. 安全测试清单
-
-必须覆盖：
-
-- 删除根目录被拒绝。
-- 覆盖 `/etc/passwd` 被拒绝。
-- 服务名注入 `nginx;rm -rf /` 被拒绝。
-- 未确认重启服务被拒绝并返回 dry-run 计划与确认令牌。
-- 确认令牌一次性、过期、跨会话使用均被拒绝。
-- 模型输出中的高风险指令被输出护栏屏蔽。
-- 审计日志哈希链能检出内容篡改与事件删除。
-- 低风险查询可以正常执行。
-- 审计日志记录风险、原因和错误码。
-
-对应测试：`tests/test_policy.py`、`tests/test_pending_confirm.py`、`tests/test_audit_chain.py` 等。
-
-## 11. 残余风险
-
-- 关键词过滤不能覆盖所有自然语言表达；LLM 意图理解已上线，但输出仍需经过策略裁决，双层过滤的规则库仍需持续扩充。
-- 当前 Web/CLI 为本地演示形态（默认仅监听 127.0.0.1，可选 Bearer Token），生产环境需要完整认证、授权和 CSRF 防护。
-- 服务生命周期操作已支持真实执行，但最小权限执行器（专用低权用户 + sudo 白名单）尚未在真实麒麟环境完成部署验证。
-- 审计哈希链为单文件链，跨轮转文件的连续性校验和异地存证属于后续增强。
+powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
+~~~

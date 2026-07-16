@@ -1,70 +1,93 @@
-# 大模型接入说明
+# 大模型接入
 
-## 1. 架构
+## 1. 职责
 
-```text
-用户自然语言
-   |
-意图风险筛查（护栏第一层，LLM 之前）
-   |
-LLM 意图理解（DeepSeekProvider，OpenAI 兼容接口）
-   |  失败/超时/未启用 → 自动回退规则关键词匹配（RuleBasedProvider）
-   |
-输出侧护栏（clarification/reasoning 截断 + 高危内容屏蔽）
-   |
-风险裁决（护栏第二层：等级 + 参数校验 + 确认令牌）
-   |
-工具执行 + 思维链审计
-```
+LLM 只执行意图理解：
 
-关键设计：**LLM 只负责"理解"，不负责"放行"**。模型输出的工具与参数仍要经过
-完整的策略裁决；模型宕机、超时、返回垃圾时系统自动降级为规则匹配，功能不中断。
+- 从已注册工具中选择一个候选；
+- 提取对象参数；
+- 返回一句话工具选择说明；
+- 参数不足时返回 clarification。
 
-## 2. API Key 配置
+PolicyEngine 独立完成工具存在性、Schema、注入、敏感路径、服务边界、风险等级和确认裁决。模型没有授权能力。
 
-1. 复制 `config/llm.local.yaml.example` 为 `config/llm.local.yaml`；
-2. 填入 API Key（该文件已被 .gitignore 排除，不会进入仓库）；
-3. 也可用环境变量 `LLM_API_KEY` 传入（优先级高于配置文件）。
+## 2. 配置
 
-`config/llm.yaml` 公共配置项：
+复制私密配置模板：
+
+~~~powershell
+Copy-Item config\llm.local.yaml.example config\llm.local.yaml
+~~~
+
+在新文件中设置 `llm_api_key`。也可以设置 `LLM_API_KEY`，环境变量优先。`config/llm.local.yaml` 已从 Git 和发布包排除。
+
+公共配置：
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `llm_enabled` | true | 总开关；false 时始终使用规则匹配 |
-| `llm_provider` | deepseek | 目前支持 deepseek（OpenAI 兼容格式，可扩展） |
-| `llm_model` | deepseek-v4-pro | 模型名 |
-| `llm_base_url` | https://api.deepseek.com/v1 | API 地址 |
-| `llm_timeout` | 8 | 请求超时（秒）；超时即回退规则，不阻塞交互 |
-| `llm_rule_fast_path` | false | true 时高置信关键词先走本地规则（0 延迟），未命中再请求 LLM |
+| `llm_enabled` | true | Provider 总开关 |
+| `llm_provider` | deepseek | 当前实现 |
+| `llm_model` | deepseek-v4-pro | 请求模型名 |
+| `llm_base_url` | https://api.deepseek.com/v1 | OpenAI 兼容基址 |
+| `llm_timeout` | 8 | 秒级超时 |
+| `llm_rule_fast_path` | false | true 时先用高置信本地规则 |
+
+配置使用标准 YAML，并由 `python -m safeops_agent.config_check` 校验。
 
 ## 3. 离线模式
 
-以下任一条件成立即进入离线规则模式：
+以下任一条件使用 RuleBasedProvider：
 
-- 环境变量 `SAFEOPS_LLM_DISABLED=1`（测试、CI、无网络演示的推荐方式）；
+- `SAFEOPS_LLM_DISABLED=1`；
 - `llm_enabled: false`；
-- 未配置 API Key。
+- API Key 为空；
+- Provider 名称不受支持。
 
-单元测试与 CI 均在离线模式下运行，保证确定性且不产生 API 费用；
-需要测 LLM 相关逻辑时使用 mock（见 `tests/test_llm.py`）。
+调用超时、网络错误、响应不是合法 JSON、模型返回未知工具时，当前请求自动回退本地路由。回退原因进入工具选择步骤。
 
-## 4. 安全边界
+## 4. 输出契约
 
-- **输入侧**：高危请求在进入 LLM 之前就被意图筛查拦截；
-- **输出侧**：模型返回的 `clarification`/`reasoning` 会展示给运维人员并写入审计，
-  因此与用户输入过同一套高危筛查，命中即屏蔽（防提示注入借模型之口诱导操作）；
-- **参数**：模型提取的参数经命令注入字符、敏感路径、标识符白名单校验；
-- **裁决**：工具风险等级与确认要求由本地策略决定，模型无权改变；
-- **审计**：意图来源（llm/rule）、模型推理文本、回退原因全部落审计日志。
+模型响应内容是 JSON 对象：
 
-## 5. 失败降级行为
+~~~json
+{
+  "tool": "system.resources",
+  "args": {},
+  "reasoning": "用户询问当前主机负载",
+  "clarification": null
+}
+~~~
 
-| 场景 | 行为 | 思维链中的可见性 |
-| --- | --- | --- |
-| API 超时/网络错误 | 回退规则匹配 | tool_selection 步骤记录"LLM 调用失败，已自动回退规则匹配" |
-| 响应非法 JSON | 回退规则匹配 | 记录"LLM 响应解析失败" |
-| 返回未注册工具 | 回退规则匹配 | 记录"LLM 返回未知工具: xxx" |
-| 缺少必填参数 | 向用户追问（clarification） | tool_selection 记录追问内容 |
+`reasoning` 是面向用户的一句话选择说明，不是隐藏思维过程。系统会截断并过滤该文本。`reasoning_chain` 是历史兼容字段名，内容是本地代码生成的结构化决策事实。
 
-Web 服务启动时会打印当前 Provider 自检信息（模型、超时、回退策略），
-避免配置错误导致的静默降级难以察觉。
+## 5. 安全顺序
+
+~~~text
+输入高危筛查
+  -> 模型选择候选工具
+  -> 模型文本输出护栏
+  -> 注册表与参数校验
+  -> 风险/服务策略
+  -> 令牌确认或执行
+  -> 脱敏签名审计
+~~~
+
+模型调用使用低温度、JSON response_format、512 token 上限和八秒超时。
+
+## 6. 验证
+
+离线确定性验证：
+
+~~~powershell
+$env:SAFEOPS_LLM_DISABLED='1'
+python -m unittest tests.test_llm tests.test_reasoning_chain -v
+~~~
+
+在线人工验证：
+
+~~~powershell
+Remove-Item Env:SAFEOPS_LLM_DISABLED -ErrorAction SilentlyContinue
+python -m safeops_agent.cli "帮我看看这台机器现在忙不忙" --json
+~~~
+
+工具选择步骤的 `source=llm` 表示模型响应被采用；后续仍必须通过本地策略。

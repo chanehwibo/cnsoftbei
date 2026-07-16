@@ -1,280 +1,124 @@
 # 答辩演示脚本
 
-## 1. 演示目标
+## 1. 准备
 
-用 6 到 8 分钟展示系统的核心价值：
+~~~powershell
+cd "C:\Users\CanhuiBao\Desktop\中国软件杯"
+python -m pip install -e .
+$env:SAFEOPS_LLM_DISABLED='1'
+python -m safeops_agent.config_check
+~~~
 
-- 自然语言运维。
-- MCP 风格工具发现和调用。
-- 低风险只读工具自动执行。
-- 中风险操作需要确认。
-- 高风险操作被拒绝。
-- 审计日志可追踪。
+说明：演示先用离线模式保证确定性。软件功能不依赖模型网络。
 
-## 2. 演示准备
+## 2. 八分钟流程
 
-进入项目目录：
+### 0:00–1:00 架构
 
-```powershell
-cd C:\Users\CanhuiBao\Desktop\中国软件杯
-$env:PYTHONPATH='src'
-```
+讲解：
 
-先跑测试：
+- 自然语言只产生候选工具；
+- 固定工具注册表没有任意 Shell；
+- PolicyEngine 本地裁决；
+- LOW、MEDIUM、HIGH 三条路径；
+- 所有入口进入同一签名审计。
 
-```powershell
-python -m unittest discover -s tests
-```
+### 1:00–2:00 只读查询
 
-预期：
+~~~powershell
+safeops-agent "查看系统信息" --json
+safeops-agent "查看CPU和内存" --json
+~~~
 
-```text
-Ran 20 tests
-OK
-```
+展示 `tool`、`risk=LOW`、结果和 `decision_summary`。
 
-## 3. 演示场景一：系统状态感知
+### 2:00–3:00 诊断
 
-讲解词：
+~~~powershell
+safeops-agent "诊断CPU和内存" --json
+safeops-agent "排查端口占用" --json
+~~~
 
-```text
-首先展示 Agent 对操作系统的基础感知能力。用户不需要记命令，只需要用自然语言请求系统信息。
-```
+展示诊断不是硬编码成功：底层采集失败会传播 `ok=false`。
 
-命令：
+### 3:00–4:15 中风险预演
 
-```powershell
-python -m safeops_agent.cli "查看系统信息" --json
-```
+~~~powershell
+safeops-agent "重启 nginx 服务" --json
+~~~
 
-预期现象：
+展示：
 
-- 返回系统名称、版本、架构、主机名、Python 版本。
-- 工具为 `system.info`。
-- 风险等级为 `LOW`。
+- `risk=MEDIUM`；
+- `requires_confirmation=true`；
+- dry-run 前置检查、步骤与回滚建议；
+- `pending_action_id`；
+- 此时没有执行服务变更。
 
-## 4. 演示场景二：资源指标采集
+演示环境不执行确认第二步；讲解正式 Linux 部署中需要复制令牌并运行 `safeops-agent --confirm ACTION_ID`。
 
-讲解词：
+### 4:15–5:00 高风险拒绝
 
-```text
-Agent 将自然语言请求映射到固定只读工具，采集 CPU、内存和磁盘指标。
-```
+~~~powershell
+safeops-agent "覆盖 /etc/passwd" --json
+~~~
 
-命令：
+展示 `risk=HIGH`、明确错误码和执行阶段缺失。
 
-```powershell
-python -m safeops_agent.cli "查看CPU和内存" --json
-```
+### 5:00–6:00 决策轨迹与审计
 
-预期现象：
+在 JSON 或 Web 中展开决策轨迹。说明：
 
-- 工具为 `system.resources`。
-- 返回 CPU 数量、内存或环境说明、磁盘使用率。
+- 它记录上下文解析、筛查、工具选择、裁决和结果；
+- `reasoning_chain` 是兼容字段名；
+- 内容是结构化事实，不是模型隐藏思维过程。
 
-## 5. 演示场景三：网络与端口排查
+~~~powershell
+safeops-agent --verify-audit
+safeops-agent --show-audit --audit-limit 3
+~~~
 
-讲解词：
+讲解 SHA 链、HMAC、锚点、轮转和脱敏。
 
-```text
-运维排障中常见问题是确认端口监听和连接状态。系统提供固定网络工具，不允许模型自由拼接命令。
-```
+### 6:00–7:00 Web
 
-命令：
-
-```powershell
-python -m safeops_agent.cli "查看监听端口" --json
-```
-
-预期现象：
-
-- 工具为 `network.listening_ports`。
-- 返回监听端口列表。
-- 风险等级为 `LOW`。
-
-## 6. 演示场景四：服务状态查询
-
-讲解词：
-
-```text
-服务查询是只读操作，可以自动执行。到麒麟环境后会使用 systemctl 获取服务状态。
-```
-
-命令：
-
-```powershell
-python -m safeops_agent.cli "查看 nginx 服务状态" --json
-```
-
-预期现象：
-
-- 工具为 `service.status`。
-- Windows 开发环境返回麒麟/Linux 适配说明。
-- 麒麟环境返回 systemctl status 输出。
-
-## 7. 演示场景五：中风险操作确认
-
-讲解词：
-
-```text
-重启服务会改变系统状态，因此被定义为中风险操作。未确认时，Agent 只给出风险提示，不执行。
-```
-
-命令：
-
-```powershell
-python -m safeops_agent.cli "重启 nginx 服务" --json
-```
-
-预期现象：
-
-- 工具为 `service.restart`。
-- 风险等级为 `MEDIUM`。
-- `requires_confirmation=true`。
-- 返回“中风险工具需要用户确认”。
-
-确认命令：
-
-```powershell
-python -m safeops_agent.cli "重启 nginx 服务" --yes --json
-```
-
-预期现象：
-
-- MVP 阶段仍不执行真实重启。
-- 返回“审批闭环已完成但真实变更禁用”的说明。
-
-## 8. 演示场景六：高风险操作拦截
-
-讲解词：
-
-```text
-高风险请求不会进入工具调用阶段。这里演示敏感路径写入被本地安全策略拦截。
-```
-
-命令：
-
-```powershell
-python -m safeops_agent.cli "覆盖 /etc/passwd" --json
-```
-
-预期现象：
-
-- 请求被拒绝。
-- 风险等级为 `HIGH`。
-- 错误码为 `INTENT_SENSITIVE_PATH`。
-
-另一个高风险示例：
-
-```powershell
-python -m safeops_agent.cli "删除根目录所有文件" --json
-```
-
-预期现象：
-
-- 命中高风险关键词。
-- 不调用任何工具。
-
-## 9. 演示场景七：MCP 工具清单
-
-讲解词：
-
-```text
-系统将运维能力注册成 MCP 风格工具，每个工具都有 Schema、风险等级和行为标注。
-```
-
-可用 Python 片段：
-
-```powershell
-python -c "import sys,json; sys.path.insert(0,'src'); from safeops_agent.mcp_server import McpToolService; print(json.dumps(McpToolService().list_tools(), ensure_ascii=False, indent=2))"
-```
-
-预期现象：
-
-- 展示工具名、分类、风险等级、inputSchema、annotations。
-
-## 10. 演示场景八：审计日志追踪
-
-讲解词：
-
-```text
-所有请求都会写入结构化审计日志，便于复盘谁请求了什么、系统为什么允许或拒绝。
-```
-
-命令：
-
-```powershell
-Get-Content .\data\audit.log -Encoding utf8 -Tail 5
-```
-
-预期现象：
-
-- 每条日志包含 `event_id`、`request`、`tool`、`risk`、`allowed`、`reason`、`error_code`、`duration_ms`。
-
-## 11. 收尾讲解
-
-```text
-本系统的重点不是让大模型直接控制操作系统，而是把大模型限制在 MCP 工具和本地安全策略之间。模型负责理解和规划，本地系统负责授权、执行和审计。
-```
-
-## 12. 兜底方案
-
-如果现场没有麒麟环境：
-
-- 使用 Windows 开发环境演示 Agent、安全策略、MCP 工具清单和审计日志。
-- 说明 systemctl、journalctl、rpm/dpkg 工具已做麒麟/Linux 适配入口，需在真实麒麟环境补测。
-
-如果终端编码异常：
-
-```powershell
-chcp 65001
-```
-
-如果 `PYTHONPATH` 丢失：
-
-```powershell
-$env:PYTHONPATH='src'
-```
-
-## 13. 新增亮点演示段落
-
-### 13.1 风险评分和决策摘要
-
-命令：
-
-```powershell
-python -m safeops_agent.cli "查看系统信息" --json
-```
-
-讲解词：每次响应都会给出 `risk_score` 和 `decision_summary`，评委可以看到系统为什么允许、拒绝或要求确认。
-
-### 13.2 故障诊断能力
-
-命令：
-
-```powershell
-python -m safeops_agent.cli "诊断 CPU 和内存异常" --json
-python -m safeops_agent.cli "排查端口占用问题" --json
-```
-
-讲解词：诊断工具输出现象、可能原因、建议动作和证据数据，使系统从“工具调用”升级为“辅助排障”。
-
-### 13.3 Dry-run 安全预案
-
-命令：
-
-```powershell
-python -m safeops_agent.cli "重启 nginx 服务" --json
-```
-
-讲解词：这是中风险操作。未确认时系统不执行真实变更，只返回 Dry-run 预案，包含前置检查、计划步骤、回滚建议和风险控制。
-
-### 13.4 Web 可视化亮点
-
-命令：
-
-```powershell
+~~~powershell
 powershell -ExecutionPolicy Bypass -File scripts\web.ps1
-```
+~~~
 
-讲解词：Web 工作台会同步展示工具、风险等级、风险评分、确认状态、决策摘要、诊断报告、Dry-run 预案和审计记录，适合现场完整演示。
+打开 `http://127.0.0.1:8765`，演示查询、决策轨迹和审计筛选。说明远程监听必须设置 token，浏览器使用 HttpOnly 会话 Cookie。
+
+### 7:00–7:40 MCP
+
+~~~powershell
+safeops-agent --list-tools
+~~~
+
+展示 25 个工具的 inputSchema、outputSchema 与 annotations。说明客户端必须完成 `initialize/initialized`，中风险调用使用 `safeops.confirm`。
+
+### 7:40–8:00 验收
+
+~~~powershell
+python -W error::ResourceWarning -m unittest discover -s tests
+~~~
+
+展示 196 项测试通过。说明另有 Web 冒烟、wheel 隔离安装和提交包禁止项校验。
+
+## 3. 一键演示
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts\demo.ps1
+~~~
+
+## 4. 关键答复
+
+| 问题 | 答复 |
+| --- | --- |
+| 模型能直接执行命令吗 | 不能。它只返回候选工具和参数，本地注册表与策略决定后续。 |
+| 中风险怎么确认 | 首次保存已裁决 tool/args 并签发一次性令牌；确认阶段不重新理解文本。 |
+| 如何防止停防火墙或审计 | 保护服务始终拒绝，非白名单服务也拒绝。 |
+| 审计删除最后一行能发现吗 | 能。持久化锚点同时记录事件数和末尾哈希。 |
+| 安装后 Web 为什么还能打开 | 默认配置和静态资源作为 wheel package-data 内置。 |
+| 没有网络能运行吗 | 能。设置离线变量后规则路由覆盖核心查询、诊断和受控操作。 |
+
+本演示执行软件级功能，不进行硬件或麒麟实机操作。

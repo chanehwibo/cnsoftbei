@@ -1,97 +1,119 @@
-# MCP 工具定义
+# MCP 接入
 
-项目提供两层 MCP 能力：
+## 1. 服务
 
-1. **标准 MCP Server（`safeops_agent.mcp_stdio`）** —— 符合 Model Context Protocol
-   的 JSON-RPC 2.0 stdio 服务端，可被 Claude Desktop 等真实 MCP 客户端直接连接。
-2. **`McpToolService`** —— 工具注册、安全裁决与调用的内核，被 stdio server、
-   Web 端、Agent 共享复用。
+启动 stdio 服务端：
 
-## 标准 MCP Server 使用
+~~~powershell
+$env:PYTHONPATH='src'
+python -m safeops_agent.mcp_stdio
+~~~
 
-启动（stdio 传输，供 MCP 客户端拉起）：
+安装后可直接运行：
 
-```bash
-PYTHONPATH=src python -m safeops_agent.mcp_stdio
-# 或安装后： safeops-mcp
-# 或 Windows： powershell scripts/mcp-stdio.ps1
-```
+~~~powershell
+safeops-mcp
+~~~
 
-实现的 JSON-RPC 方法：`initialize`、`notifications/initialized`、
-`tools/list`、`tools/call`、`ping`，协议版本 `2024-11-05`。
+传输使用 stdin/stdout，一行一条 JSON-RPC 2.0 消息。
 
-在 Claude Desktop 的 `claude_desktop_config.json` 中注册：
+## 2. 版本与生命周期
 
-```json
+服务当前版本为 `2025-11-25`，兼容：
+
+- `2025-06-18`；
+- `2025-03-26`；
+- `2024-11-05`。
+
+客户端顺序：
+
+1. 请求 `initialize`，提供 `protocolVersion`；
+2. 发送通知 `notifications/initialized`；
+3. 调用 `tools/list`、`tools/call` 或 `ping`。
+
+在第 2 步之前调用工具会返回 `-32600`。
+
+初始化请求：
+
+~~~json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"demo","version":"1.0"}}}
+~~~
+
+初始化通知：
+
+~~~json
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+~~~
+
+工具列表：
+
+~~~json
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+~~~
+
+## 3. 工具契约
+
+当前返回 25 个工具。每项包含：
+
+- `name`、`description`、`category`、`risk`；
+- 严格 `inputSchema`，默认禁止额外字段；
+- `outputSchema`；
+- `readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`；
+- 扩展注解 `requiresConfirmation`。
+
+Schema 校验覆盖必填、对象/数组/字符串/数值/布尔类型、长度、范围、正则、枚举和额外字段。
+
+LOW 调用示例：
+
+~~~json
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"system.info","arguments":{}}}
+~~~
+
+结果同时包含 MCP `content`、`isError` 和机器可读 `structuredContent`。
+
+## 4. 中风险确认
+
+首次调用：
+
+~~~json
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"service.restart","arguments":{"service":"nginx"}}}
+~~~
+
+返回 `TOOL_CONFIRMATION_REQUIRED`、dry-run 和 `data.pending_action_id`，不会执行服务操作。
+
+确认调用：
+
+~~~json
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"safeops.confirm","arguments":{"action_id":"复制首次调用返回的令牌"}}}
+~~~
+
+`safeops.confirm` 只消费 MCP 会话签发的一次性令牌，执行保存的工具和参数，并再次应用当前策略。
+
+## 5. 安全
+
+- 不暴露任意 Shell；
+- 所有调用进入 PolicyEngine；
+- HIGH 默认拒绝；
+- 服务白名单和保护列表生效；
+- 中风险没有布尔确认参数；
+- 每次 tool call 与 confirm 写入统一 HMAC 审计；
+- 参数不符合 Schema 时 handler 不运行。
+
+## 6. 客户端配置示例
+
+~~~json
 {
   "mcpServers": {
     "safeops": {
       "command": "python",
       "args": ["-m", "safeops_agent.mcp_stdio"],
-      "env": { "PYTHONPATH": "src" }
+      "env": {
+        "PYTHONPATH": "C:\\path\\to\\cnsoftbei\\src",
+        "SAFEOPS_LLM_DISABLED": "1"
+      }
     }
   }
 }
-```
+~~~
 
-`tools/call` 的每次调用都会先经 `PolicyEngine` 安全护栏裁决：LOW 直接放行、
-MEDIUM 需 `confirmed=true`、HIGH 拒绝，参数注入与敏感路径一律拦截；被拦截时
-响应 `isError=true` 并在 `structuredContent.error_code` 给出原因码。
-
-## 手动握手示例
-
-```bash
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}' \
-  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | PYTHONPATH=src python -m safeops_agent.mcp_stdio
-```
-
-## 工具元数据
-
-每个工具包含：
-
-- `name`: 工具名，例如 `system.info`。
-- `description`: 工具用途说明。
-- `category`: 工具分类。
-- `risk`: 风险等级，取值为 `LOW`、`MEDIUM`、`HIGH`。
-- `inputSchema`: JSON Schema 风格输入定义。
-- `annotations`: 工具行为提示，包括只读、破坏性和是否需要确认。
-
-## 调用结果格式
-
-成功：
-
-```json
-{
-  "ok": true,
-  "summary": "系统信息采集完成",
-  "data": {},
-  "error": null,
-  "error_code": null,
-  "risk": "LOW",
-  "requires_confirmation": false
-}
-```
-
-失败：
-
-```json
-{
-  "ok": false,
-  "error_code": "TOOL_CONFIRMATION_REQUIRED",
-  "error": "中风险工具需要用户确认",
-  "risk": "MEDIUM",
-  "requires_confirmation": true,
-  "data": {}
-}
-```
-
-## 安全约束
-
-- MCP 工具不暴露任意 shell 执行能力。
-- 工具调用前必须经过 `PolicyEngine`。
-- 中风险工具需要显式确认。
-- 高风险工具默认拒绝。
-- 参数校验失败时不会进入工具 handler。
+MCP 服务本身不使用 LLM 路由；示例中的离线变量用于客户端同时启动其他 Agent 入口时保持确定性。
