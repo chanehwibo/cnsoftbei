@@ -234,7 +234,6 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             return
 
         request = str(payload.get("request", "")).strip()
-        confirmed = bool(payload.get("confirmed", False))
         action_id = str(payload.get("action_id", "")).strip()
         if not request and not action_id:
             self._json({"ok": False, "error": "request or action_id is required"}, HTTPStatus.BAD_REQUEST)
@@ -246,7 +245,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             if action_id:
                 response = agent.confirm(action_id)
             else:
-                response = agent.handle(request, confirmed=confirmed)
+                response = agent.handle(request)
         _sse.notify()
         self._json(
             {

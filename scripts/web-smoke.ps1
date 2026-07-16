@@ -30,7 +30,7 @@ try {
     throw "tool list api failed"
   }
 
-  $body = @{ request = "查看系统信息"; confirmed = $false } | ConvertTo-Json -Compress
+  $body = @{ request = "查看系统信息" } | ConvertTo-Json -Compress
   $agent = Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/agent" -Method Post -Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 5
   if (-not $agent.ok -or $agent.tool -ne "system.info") {
     throw "agent api failed"

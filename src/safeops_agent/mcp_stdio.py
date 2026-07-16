@@ -130,9 +130,7 @@ class McpStdioServer:
         arguments = params.get("arguments") or {}
         if not isinstance(arguments, dict):
             raise _RpcError(INVALID_PARAMS, "arguments 必须为对象")
-        confirmed = bool(params.get("confirmed", False))
-
-        outcome = self.service.call_tool(name, arguments, confirmed=confirmed)
+        outcome = self.service.call_tool(name, arguments)
         text = json.dumps(outcome, ensure_ascii=False, indent=2)
         return {
             "content": [{"type": "text", "text": text}],

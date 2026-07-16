@@ -25,7 +25,6 @@ def build_parser() -> argparse.ArgumentParser:
     app_config = load_app_config()
     parser = argparse.ArgumentParser(description="安全智能运维 Agent CLI")
     parser.add_argument("request", nargs="?", help="自然语言运维请求")
-    parser.add_argument("--yes", action="store_true", help="确认执行中风险操作（重跑意图理解后放行）")
     parser.add_argument("--confirm", metavar="ACTION_ID", help="凭一次性确认令牌精确执行已预演的中风险操作（推荐）")
     parser.add_argument("--audit-log", default=app_config["audit_log"], help="审计日志路径")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出完整结果")
@@ -73,16 +72,16 @@ def main() -> int:
     if args.confirm:
         response = agent.confirm(args.confirm)
     else:
-        response = agent.handle(args.request, confirmed=args.yes)
+        response = agent.handle(args.request)
     if args.json:
         print(json.dumps(response.__dict__, ensure_ascii=False, default=str, indent=2))
     else:
         print(response.message)
         if response.requires_confirmation:
             if response.pending_action_id:
-                print(f"如确认执行：--confirm {response.pending_action_id}（10 分钟内有效），或追加 --yes。")
+                print(f"如确认执行：--confirm {response.pending_action_id}（10 分钟内有效）。")
             else:
-                print("如确认执行，请追加 --yes。")
+                print("当前操作未签发确认令牌，不能执行。")
     return 0 if response.ok else 1
 
 

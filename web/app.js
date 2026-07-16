@@ -1,7 +1,6 @@
 const messages = document.querySelector("#messages");
 const form = document.querySelector("#requestForm");
 const input = document.querySelector("#requestInput");
-const confirmInput = document.querySelector("#confirmInput");
 const health = document.querySelector("#health");
 const toolsEl = document.querySelector("#tools");
 const auditEl = document.querySelector("#audit");
@@ -267,7 +266,7 @@ async function sendRequest(text) {
   const result = await requestJson("/api/agent", {
     method: "POST",
     headers: {"Content-Type": "application/json", "X-Session-Id": sessionId},
-    body: JSON.stringify({request: text, confirmed: confirmInput.checked}),
+    body: JSON.stringify({request: text}),
   });
   renderAgentResult(result);
   await loadAudit();

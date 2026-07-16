@@ -75,7 +75,7 @@ class SafeOpsAgent:
     MAX_INPUT_LENGTH: int = 2000
     MAX_HISTORY_TURNS: int = 10
 
-    def handle(self, text: str, confirmed: bool = False) -> AgentResponse:
+    def handle(self, text: str) -> AgentResponse:
         started = time.perf_counter()
         chain = _ReasoningChain()
         original_text = text
@@ -172,7 +172,7 @@ class SafeOpsAgent:
 
         # 步骤 4：风险裁决（护栏第二层：等级 + 参数 + 确认）
         tool = self.tools[tool_name]
-        decision = self.policy.evaluate_tool(tool, args=args, confirmed=confirmed)
+        decision = self.policy.evaluate_tool(tool, args=args, confirmed=False)
         risk_score = self._risk_score(decision)
         decision_summary = self._decision_summary(tool_name, decision, risk_score)
         chain.add("risk_adjudication", "风险裁决",
@@ -181,7 +181,7 @@ class SafeOpsAgent:
                   outputs={"allowed": decision.allowed, "risk": decision.risk.value,
                            "risk_score": risk_score,
                            "requires_confirmation": decision.requires_confirmation,
-                           "error_code": decision.error_code, "confirmed": confirmed})
+                           "error_code": decision.error_code, "confirmed": False})
         if not decision.allowed:
             dry_run_plan = self._dry_run_plan(tool_name, args) if decision.requires_confirmation else None
             pending_id = None
@@ -256,8 +256,8 @@ class SafeOpsAgent:
     def confirm(self, action_id: str) -> AgentResponse:
         """凭一次性确认令牌精确执行已预演的中风险动作。
 
-        与 handle(confirmed=True) 的区别：不重跑意图理解，执行的
-        就是签发令牌时裁决过的 (tool, args)。令牌一次性、限时、绑定会话。
+        不重跑意图理解，执行的就是签发令牌时裁决过的 (tool, args)。
+        令牌一次性、限时、绑定会话；这是中风险动作的唯一放行入口。
         """
         started = time.perf_counter()
         chain = _ReasoningChain()
