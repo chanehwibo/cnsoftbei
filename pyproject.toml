@@ -5,6 +5,9 @@ description = "A safety-first intelligent operations Agent for Kylin OS."
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0.2"]
 
+[project.optional-dependencies]
+test = ["coverage[toml]>=7.6"]
+
 [project.scripts]
 safeops-agent = "safeops_agent.cli:main"
 safeops-mcp = "safeops_agent.mcp_stdio:main"
@@ -26,3 +29,16 @@ safeops_agent = [
   "resources/web/*.css",
   "resources/web/*.js",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["safeops_agent"]
+
+[tool.coverage.report]
+fail_under = 70
+precision = 1
+show_missing = true
+skip_covered = true
+
+[tool.coverage.xml]
+output = "coverage.xml"

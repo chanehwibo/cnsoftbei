@@ -36,8 +36,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Run unit tests
-        run: python -m unittest discover -s tests
+      - name: Run unit tests with coverage
+        run: |
+          python -W error::ResourceWarning -m coverage run -m unittest discover -s tests
+          python -m coverage report
+          python -m coverage xml
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ runner.os }}-py${{ matrix.python }}
+          path: coverage.xml
 
       # ubuntu 近似麒麟（无实机时先覆盖 Linux 代码分支：journalctl/systemctl/df/ss 路径）
       - name: CLI smoke on Linux

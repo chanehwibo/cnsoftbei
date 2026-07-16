@@ -4,7 +4,7 @@
 
 | 脚本 | 作用 |
 | --- | --- |
-| `test.ps1` | 设置源码路径并运行 unittest |
+| `test.ps1` | 设置源码路径，运行严格模式 unittest，检查 70% 覆盖率门槛并生成 `coverage.xml` |
 | `acceptance.ps1` | 运行自动测试、工具清单、LOW/MEDIUM/HIGH CLI 场景和审计生成 |
 | `validate-config.ps1` | 运行标准 YAML 配置校验，参数原样转发 |
 | `web.ps1` | 前台启动 Web 工作台 |

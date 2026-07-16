@@ -24,7 +24,7 @@
 | 日期 | 2026-07-16 |
 | 系统 | Windows |
 | Python | 3.14 |
-| 测试框架 | unittest、Node `node:test` |
+| 测试框架 | unittest、coverage.py、Node `node:test` |
 | LLM | `SAFEOPS_LLM_DISABLED=1`，网络逻辑使用 mock |
 | 警告策略 | ResourceWarning 作为错误 |
 
@@ -35,7 +35,9 @@
 ~~~powershell
 $env:PYTHONPATH='src'
 $env:SAFEOPS_LLM_DISABLED='1'
-python -W error::ResourceWarning -m unittest discover -s tests
+python -W error::ResourceWarning -m coverage run -m unittest discover -s tests
+python -m coverage report
+python -m coverage xml
 npm run test:web
 ~~~
 
@@ -44,9 +46,20 @@ npm run test:web
 ~~~text
 Ran 216 tests
 OK
+~~~
 
 Node 前端测试：7 项通过。
-~~~
+
+覆盖率结果（coverage.py 7.15.2，`branch = true`）：
+
+| 指标 | 数值 |
+| --- | ---: |
+| 语句覆盖率 | 75.1% |
+| 分支覆盖率 | 64.0% |
+| 综合覆盖率 | 72.1% |
+| CI 最低门槛 | 70.0% |
+
+CI 生成 `coverage.xml` 并按操作系统和 Python 版本上传独立报告；低于门槛时任务失败。
 
 测试文件：
 
@@ -122,11 +135,12 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 软件验收通过需同时满足：
 
 1. 216 项 unittest 与 7 项前端 Node 测试全部通过；
-2. ResourceWarning 严格模式无警告；
-3. 配置校验退出码为 0；
-4. 审计完整性 `ok=true`；
-5. Web 冒烟通过；
-6. CLI acceptance 通过；
-7. wheel 隔离安装通过；
-8. 发布包校验通过；
-9. Git 跟踪内容不包含运行态数据或私密配置。
+2. Python 综合覆盖率不低于 70.0%，并生成 XML 报告；
+3. ResourceWarning 严格模式无警告；
+4. 配置校验退出码为 0；
+5. 审计完整性 `ok=true`；
+6. Web 冒烟通过；
+7. CLI acceptance 通过；
+8. wheel 隔离安装通过；
+9. 发布包校验通过；
+10. Git 跟踪内容不包含运行态数据或私密配置。

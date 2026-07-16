@@ -144,7 +144,7 @@ powershell -ExecutionPolicy Bypass -File scripts\package.ps1
 powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 ~~~
 
-自动化测试当前为 196 项。该组命令完成软件级回归、Web API 冒烟、核心 CLI 场景和发布包内容校验；不执行硬件或麒麟实机操作。
+自动化测试当前为 216 项 Python 测试和 7 项前端 Node 测试，Python 分支覆盖综合值 72.1%、门槛 70.0%。该组命令完成软件级回归、Web API 冒烟、核心 CLI 场景和发布包内容校验；不执行硬件或麒麟实机操作。
 
 ## 11. 常见处理
 
