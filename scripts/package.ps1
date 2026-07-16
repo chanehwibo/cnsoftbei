@@ -41,6 +41,7 @@ New-Item -ItemType Directory -Path $staging | Out-Null
 $items = @(
   "README.md",
   "pyproject.toml",
+  "package.json",
   ".gitignore",
   "config",
   "demo",

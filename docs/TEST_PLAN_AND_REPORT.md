@@ -11,6 +11,7 @@
 - 审计脱敏、SHA/HMAC、锚点、轮转和历史格式；
 - MCP 生命周期、协议版本、Schema、确认与审计；
 - Web 登录、Cookie、CSP、限流边界和 API；
+- 前端请求、筛选、排序、会话标识和响应映射逻辑；
 - 标准 YAML、配置校验和安装态资源；
 - wheel 隔离安装与发布包内容。
 
@@ -23,7 +24,7 @@
 | 日期 | 2026-07-16 |
 | 系统 | Windows |
 | Python | 3.14 |
-| 测试框架 | unittest |
+| 测试框架 | unittest、Node `node:test` |
 | LLM | `SAFEOPS_LLM_DISABLED=1`，网络逻辑使用 mock |
 | 警告策略 | ResourceWarning 作为错误 |
 
@@ -35,13 +36,16 @@
 $env:PYTHONPATH='src'
 $env:SAFEOPS_LLM_DISABLED='1'
 python -W error::ResourceWarning -m unittest discover -s tests
+npm run test:web
 ~~~
 
 结果：
 
 ~~~text
-Ran 196 tests
+Ran 216 tests
 OK
+
+Node 前端测试：7 项通过。
 ~~~
 
 测试文件：
@@ -55,6 +59,7 @@ OK
 | `test_audit.py`、`test_audit_chain.py` | 查询、脱敏、签名、锚点、轮转与旧链 |
 | `test_mcp_service.py`、`test_mcp_stdio.py` | MCP 工具、生命周期、Schema 和协议 |
 | `test_web_server.py` | HTTP Cookie/Bearer 认证、限流、会话过期/LRU、SSE、TLS 与输入边界 |
+| `web/tests/app_logic.test.js` | 请求错误、202 流程、筛选、排序、会话 ID 与响应字段映射 |
 | `test_config_check.py`、`test_packaging.py` | YAML、配置、资源同步和安装后备 |
 | `test_llm.py`、`test_reasoning_chain.py` | Provider、输出护栏和结构化决策轨迹 |
 
@@ -116,7 +121,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 
 软件验收通过需同时满足：
 
-1. 196 项 unittest 全部通过；
+1. 216 项 unittest 与 7 项前端 Node 测试全部通过；
 2. ResourceWarning 严格模式无警告；
 3. 配置校验退出码为 0；
 4. 审计完整性 `ok=true`；

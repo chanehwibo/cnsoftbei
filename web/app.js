@@ -13,24 +13,26 @@ const toolCount = document.querySelector("#toolCount");
 const authForm = document.querySelector("#authForm");
 const authToken = document.querySelector("#authToken");
 const authState = document.querySelector("#authState");
+const {
+  buildAgentDetail,
+  buildAuditQuery,
+  formatRiskScore,
+  normalizeSessionId,
+  requestJson: requestJsonWith,
+  sortTools,
+} = SafeOpsLogic;
 
 // 会话 ID：同一浏览器标签页内保持稳定，服务端据此隔离对话上下文并绑定确认令牌
 const sessionId = (() => {
-  let id = sessionStorage.getItem("safeops-session");
+  let id = normalizeSessionId(sessionStorage.getItem("safeops-session"));
   if (!id) {
-    id = (crypto.randomUUID ? crypto.randomUUID() : `s-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-      .replace(/[^A-Za-z0-9_-]/g, "");
+    id = normalizeSessionId(
+      crypto.randomUUID ? crypto.randomUUID() : `s-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     sessionStorage.setItem("safeops-session", id);
   }
   return id;
 })();
-
-function formatRiskScore(score) {
-  if (score === null || score === undefined || score === "") {
-    return "-";
-  }
-  return `${score}/100`;
-}
 
 function createTag(text, className) {
   const tag = document.createElement("span");
@@ -233,12 +235,7 @@ function addMessage(role, text, detail = {}) {
 }
 
 async function requestJson(url, options) {
-  const response = await fetch(url, {...(options || {}), credentials: "same-origin"});
-  const payload = await response.json();
-  if (!response.ok && response.status !== 202) {
-    throw new Error(payload.error || `HTTP ${response.status}`);
-  }
-  return payload;
+  return requestJsonWith(fetch, url, options);
 }
 
 function updateStatus(result) {
@@ -252,16 +249,7 @@ function updateStatus(result) {
 
 function renderAgentResult(result) {
   updateStatus(result);
-  addMessage("agent", result.message || result.error || "无响应", {
-    tool: result.tool,
-    risk: result.risk,
-    riskScore: result.risk_score,
-    requiresConfirmation: result.requires_confirmation,
-    decisionSummary: result.decision_summary,
-    data: result.data,
-    decisionTrace: result.decision_trace || result.reasoning_chain,
-    pendingActionId: result.pending_action_id,
-  });
+  addMessage("agent", result.message || result.error || "无响应", buildAgentDetail(result));
 }
 
 async function sendRequest(text) {
@@ -287,9 +275,7 @@ async function confirmAction(actionId) {
 
 async function loadTools() {
   const result = await requestJson("/api/tools");
-  const tools = (result.tools || []).slice().sort((left, right) => {
-    return `${left.category}.${left.name}`.localeCompare(`${right.category}.${right.name}`);
-  });
+  const tools = sortTools(result.tools);
   toolCount.textContent = tools.length;
   toolsEl.innerHTML = "";
   for (const tool of tools) {
@@ -315,18 +301,11 @@ const auditRisk = document.querySelector("#auditRisk");
 const auditTool = document.querySelector("#auditTool");
 
 async function loadAudit() {
-  const params = new URLSearchParams();
-  if (auditSource.value) {
-    params.set("source", auditSource.value);
-  }
-  if (auditRisk.value) {
-    params.set("risk", auditRisk.value);
-  }
-  const toolFilter = auditTool.value.trim();
-  if (toolFilter) {
-    params.set("tool", toolFilter);
-  }
-  const query = params.toString();
+  const query = buildAuditQuery({
+    source: auditSource.value,
+    risk: auditRisk.value,
+    tool: auditTool.value,
+  });
   const result = await requestJson(query ? `/api/audit?${query}` : "/api/audit");
   const events = result.events || [];
   auditEl.innerHTML = "";

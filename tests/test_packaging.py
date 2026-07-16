@@ -10,7 +10,7 @@ class PackagedResourceTest(unittest.TestCase):
     def test_runtime_defaults_and_web_assets_are_bundled(self):
         for name in ("app.yaml", "policy.yaml", "tools.yaml", "llm.yaml"):
             self.assertTrue((config.BUNDLED_CONFIG_DIR / name).is_file(), name)
-        for name in ("index.html", "styles.css", "app.js"):
+        for name in ("index.html", "styles.css", "app_logic.js", "app.js"):
             self.assertTrue((config.BUNDLED_WEB_ROOT / name).is_file(), name)
 
     def test_config_loader_falls_back_to_bundled_defaults(self):
@@ -25,7 +25,7 @@ class PackagedResourceTest(unittest.TestCase):
         source_root = Path(__file__).resolve().parents[1]
         for group, names in {
             "config": ("app.yaml", "policy.yaml", "tools.yaml", "llm.yaml"),
-            "web": ("index.html", "styles.css", "app.js"),
+            "web": ("index.html", "styles.css", "app_logic.js", "app.js"),
         }.items():
             for name in names:
                 source = (source_root / group / name).read_text(encoding="utf-8").splitlines()

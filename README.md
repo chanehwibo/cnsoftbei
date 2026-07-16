@@ -85,6 +85,7 @@ safeops-mcp
 $env:PYTHONPATH='src'
 $env:SAFEOPS_LLM_DISABLED='1'
 python -W error::ResourceWarning -m unittest discover -s tests
+npm run test:web
 python -m safeops_agent.config_check
 python -m safeops_agent.cli --verify-audit
 powershell -ExecutionPolicy Bypass -File scripts\web-smoke.ps1
@@ -93,7 +94,7 @@ powershell -ExecutionPolicy Bypass -File scripts\package.ps1
 powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 ~~~
 
-当前自动化套件包含 196 项测试。软件级验收在 Windows/Python 3.14 环境执行；本次验收范围不包含硬件或麒麟实机执行。
+当前自动化套件包含 216 项 Python 测试和 7 项前端 Node 测试。软件级验收在 Windows/Python 3.14 与 Node 24 环境执行；本次验收范围不包含硬件或麒麟实机执行。
 
 ## 文档
 

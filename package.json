@@ -1,0 +1,10 @@
+{
+  "name": "safeops-agent-web-tests",
+  "private": true,
+  "scripts": {
+    "test:web": "node --test web/tests/app_logic.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

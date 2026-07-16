@@ -15,6 +15,7 @@ try {
   $required = @(
     "README.md",
     "pyproject.toml",
+    "package.json",
     "src/safeops_agent/agent.py",
     "src/safeops_agent/audit/logger.py",
     "src/safeops_agent/mcp_stdio.py",
@@ -29,6 +30,8 @@ try {
     "config/app.yaml",
     "web/index.html",
     "web/app.js",
+    "web/app_logic.js",
+    "web/tests/app_logic.test.js",
     "scripts/acceptance.ps1",
     "scripts/report.ps1",
     "scripts/web-smoke.ps1",
