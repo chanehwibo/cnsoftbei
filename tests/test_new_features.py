@@ -114,6 +114,36 @@ class ToolPriorityTest(unittest.TestCase):
         self.assertEqual(response.tool, "system.resources")
 
 
+class OfflineOperationRoutingTest(unittest.TestCase):
+    def setUp(self):
+        self.agent = SafeOpsAgent(llm=RuleBasedProvider())
+
+    def test_routes_service_start(self):
+        tool, args = self.agent._select_tool("启动 nginx 服务")
+        self.assertEqual(tool, "service.start")
+        self.assertEqual(args, {"service": "nginx"})
+
+    def test_routes_service_stop(self):
+        tool, args = self.agent._select_tool("停止 nginx 服务")
+        self.assertEqual(tool, "service.stop")
+        self.assertEqual(args, {"service": "nginx"})
+
+    def test_routes_managed_file_apply(self):
+        tool, args = self.agent._select_tool("写入受管文件 app.conf 内容为 port=8080")
+        self.assertEqual(tool, "file.apply")
+        self.assertEqual(args, {"name": "app.conf", "content": "port=8080"})
+
+    def test_routes_managed_file_rollback(self):
+        tool, args = self.agent._select_tool("回滚受管文件到快照 app.conf.123")
+        self.assertEqual(tool, "file.rollback")
+        self.assertEqual(args, {"snapshot_id": "app.conf.123"})
+
+    def test_routes_managed_file_list(self):
+        tool, args = self.agent._select_tool("查看受管文件列表")
+        self.assertEqual(tool, "file.list_managed")
+        self.assertEqual(args, {})
+
+
 class AsciiKeywordBoundaryTest(unittest.TestCase):
     def test_rejects_standalone_reboot(self):
         engine = PolicyEngine()

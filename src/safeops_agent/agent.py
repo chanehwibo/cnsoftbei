@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -424,9 +425,26 @@ class SafeOpsAgent:
             return "process.list", {"limit": 10}
         if any(keyword in compact for keyword in ("错误日志", "系统日志", "journal", "日志", "报错", "error")):
             return "logs.recent_errors", {"lines": 100}
+        if "受管文件" in compact and any(keyword in compact for keyword in ("列表", "查看", "有哪些")):
+            return "file.list_managed", {}
+        if any(keyword in compact for keyword in ("回滚", "恢复")) and any(
+            keyword in compact for keyword in ("快照", "受管文件", "snapshot")
+        ):
+            return "file.rollback", {"snapshot_id": self._extract_snapshot_id(text)}
+        if "受管文件" in compact and any(keyword in compact for keyword in ("写入", "保存", "更新")):
+            name, content = self._extract_managed_file(text)
+            return "file.apply", {"name": name, "content": content}
         if "重启" in compact and ("服务" in compact or self._has_service_hint(compact)):
             service = self._extract_service_name(text)
             return "service.restart", {"service": service}
+        if "启动" in compact and ("服务" in compact or self._has_service_hint(compact)):
+            service = self._extract_service_name(text)
+            return "service.start", {"service": service}
+        if any(keyword in compact for keyword in ("停止", "停掉")) and (
+            "服务" in compact or self._has_service_hint(compact)
+        ):
+            service = self._extract_service_name(text)
+            return "service.stop", {"service": service}
         if ("服务" in compact or self._has_service_hint(compact)) and any(keyword in compact for keyword in ("状态", "查询", "查看", "跑着没", "运行", "是否正常", "在不在")):
             service = self._extract_service_name(text)
             return "service.status", {"service": service}
@@ -496,6 +514,26 @@ class SafeOpsAgent:
             if cleaned:
                 return cleaned
         return ""
+
+    def _extract_managed_file(self, text: str) -> tuple[str, str]:
+        match = re.search(
+            r"(?:受管文件|文件)\s+([A-Za-z0-9._-]+)\s+"
+            r"(?:内容为|内容|写入)\s*[:：]?\s*(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1), match.group(2).strip()
+        name_match = re.search(r"\b([A-Za-z0-9][A-Za-z0-9._-]*)\b", text)
+        return (name_match.group(1) if name_match else ""), ""
+
+    def _extract_snapshot_id(self, text: str) -> str:
+        match = re.search(
+            r"(?:快照|snapshot(?:_id)?)\s*[:：]?\s*([A-Za-z0-9._-]+)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return match.group(1) if match else ""
 
     def _resolve_context(self, text: str) -> str:
         compact = text.replace(" ", "").lower()

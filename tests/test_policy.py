@@ -103,6 +103,17 @@ class PolicyEngineTest(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.error_code, "ARG_COMMAND_INJECTION")
 
+    def test_managed_file_content_is_not_treated_as_shell(self):
+        tool = build_registry()["file.apply"]
+        decision = PolicyEngine().evaluate_tool(
+            tool,
+            {"name": "app.conf", "content": "PATH=$HOME/bin; mode=<safe>"},
+        )
+
+        self.assertFalse(decision.allowed)
+        self.assertTrue(decision.requires_confirmation)
+        self.assertEqual(decision.error_code, "TOOL_CONFIRMATION_REQUIRED")
+
     def test_rejects_newline_in_argument(self):
         tool = build_registry()["service.status"]
         decision = PolicyEngine().evaluate_tool(tool, {"service": "nginx\nrm -rf /"})

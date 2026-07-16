@@ -152,6 +152,8 @@ class PolicyEngine:
     def _validate_tool_args(self, tool: ToolSpec, args: dict[str, Any]) -> PolicyDecision | None:
         for key, value in args.items():
             text = str(value)
+            if tool.name == "file.apply" and key == "content":
+                continue
             if any(char in text for char in self.argument_forbidden_chars):
                 return PolicyDecision(
                     allowed=False,
