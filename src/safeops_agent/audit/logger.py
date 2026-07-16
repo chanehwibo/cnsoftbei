@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import platform
+import secrets
 import threading
+import time
 import uuid
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,6 +20,7 @@ class AuditLogger:
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10 MB
     MAX_BACKUPS: int = 5
     GENESIS_HASH: str = "0" * 64
+    LOCK_TIMEOUT_SECONDS: float = 5.0
 
     def __init__(self, path: Path | str = "data/audit.log", source: str = "safeops-agent") -> None:
         self.path = Path(path)
@@ -23,42 +28,81 @@ class AuditLogger:
         self._lock = threading.Lock()
 
     def record(self, event: dict[str, Any]) -> None:
-        """追加一条审计事件，并接入防篡改哈希链。
-
-        entry_hash = SHA-256(含 prev_hash 的事件规范化 JSON)，
-        prev_hash 指向上一条的 entry_hash（文件轮转后从创世哈希重新起链）。
-        改动任意历史事件的内容或删除中间事件都会破坏链条，可由 verify() 检出。
-        """
+        """追加一条带哈希链、HMAC 签名与持久化锚点的审计事件。"""
         with self._lock:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._rotate_if_needed()
-            payload = {
-                "event_id": uuid.uuid4().hex,
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "source": self.source,
-                "host": platform.node(),
-                "pid": os.getpid(),
-                **event,
-            }
-            payload["prev_hash"] = self._last_entry_hash()
-            canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-            payload["entry_hash"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-            with self.path.open("a", encoding="utf-8") as file:
-                file.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+            with self._process_lock():
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self._rotate_if_needed()
+                previous_count = self._event_count(self.path)
+                payload = {
+                    "event_id": uuid.uuid4().hex,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "source": self.source,
+                    "host": platform.node(),
+                    "pid": os.getpid(),
+                    **event,
+                }
+                payload["prev_hash"] = self._last_entry_hash()
+                canonical = self._canonical(payload)
+                payload["entry_hash"] = hashlib.sha256(canonical).hexdigest()
+                payload["entry_hmac"] = hmac.new(
+                    self._load_key(),
+                    self._canonical(payload),
+                    hashlib.sha256,
+                ).hexdigest()
+                with self.path.open("a", encoding="utf-8") as file:
+                    file.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+                    file.flush()
+                    os.fsync(file.fileno())
+                self._write_anchor(self.path, payload["entry_hash"], previous_count + 1)
 
     def verify(self) -> dict[str, Any]:
-        """校验当前审计文件的哈希链完整性。
+        """校验当前日志及全部轮转日志的链、签名和锚点。"""
+        with self._lock:
+            with self._process_lock():
+                paths = [
+                    self.path.with_suffix(f".log.{index}")
+                    for index in range(self.MAX_BACKUPS, 0, -1)
+                    if self.path.with_suffix(f".log.{index}").exists()
+                ]
+                if self.path.exists():
+                    paths.append(self.path)
+                if not paths:
+                    return {
+                        "ok": True,
+                        "checked": 0,
+                        "legacy": 0,
+                        "segments": 0,
+                        "first_bad_line": None,
+                        "reason": "审计文件不存在（空日志视为完整）",
+                    }
+                total_checked = 0
+                total_legacy = 0
+                for path in paths:
+                    report = self._verify_file(path)
+                    if not report["ok"]:
+                        report["segment"] = path.name
+                        report["checked"] += total_checked
+                        report["legacy"] += total_legacy
+                        report["segments"] = len(paths)
+                        return report
+                    total_checked += report["checked"]
+                    total_legacy += report["legacy"]
+                return {
+                    "ok": True,
+                    "checked": total_checked,
+                    "legacy": total_legacy,
+                    "segments": len(paths),
+                    "first_bad_line": None,
+                    "reason": None,
+                }
 
-        返回 {ok, checked, legacy, first_bad_line, reason}。
-        legacy 为启用哈希链之前写入的无哈希事件数（仅允许出现在文件头部）。
-        """
-        if not self.path.exists():
-            return {"ok": True, "checked": 0, "legacy": 0, "first_bad_line": None,
-                    "reason": "审计文件不存在（空日志视为完整）"}
+    def _verify_file(self, path: Path) -> dict[str, Any]:
         checked = 0
         legacy = 0
         prev_hash: str | None = None
-        with self.path.open(encoding="utf-8") as file:
+        key = self._load_key()
+        with path.open(encoding="utf-8") as file:
             for line_no, raw in enumerate(file, start=1):
                 line = raw.strip()
                 if not line:
@@ -68,6 +112,7 @@ class AuditLogger:
                 except json.JSONDecodeError:
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "存在无法解析的事件行"}
+                entry_hmac = event.pop("entry_hmac", None)
                 entry_hash = event.pop("entry_hash", None)
                 if entry_hash is None:
                     if checked:
@@ -77,17 +122,42 @@ class AuditLogger:
                     legacy += 1
                     continue
                 recomputed = hashlib.sha256(
-                    json.dumps(event, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                    self._canonical(event)
                 ).hexdigest()
                 if recomputed != entry_hash:
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "事件内容与哈希不符（内容被篡改）"}
-                if prev_hash is not None and event.get("prev_hash") != prev_hash:
+                expected_prev = self.GENESIS_HASH if prev_hash is None else prev_hash
+                if event.get("prev_hash") != expected_prev:
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "链条断裂（事件被删除或重排）"}
+                if not isinstance(entry_hmac, str):
+                    return {"ok": False, "checked": checked, "legacy": legacy,
+                            "first_bad_line": line_no, "reason": "事件缺少 HMAC 签名"}
+                signed_event = {**event, "entry_hash": entry_hash}
+                expected_hmac = hmac.new(
+                    key,
+                    self._canonical(signed_event),
+                    hashlib.sha256,
+                ).hexdigest()
+                if not hmac.compare_digest(entry_hmac, expected_hmac):
+                    return {"ok": False, "checked": checked, "legacy": legacy,
+                            "first_bad_line": line_no, "reason": "事件 HMAC 签名无效"}
                 prev_hash = entry_hash
                 checked += 1
-        return {"ok": True, "checked": checked, "legacy": legacy, "first_bad_line": None, "reason": None}
+        anchor = self._read_anchor(path)
+        if checked or legacy:
+            if anchor is None:
+                return {"ok": False, "checked": checked, "legacy": legacy,
+                        "first_bad_line": None, "reason": "审计锚点缺失"}
+            if anchor.get("count") != checked + legacy:
+                return {"ok": False, "checked": checked, "legacy": legacy,
+                        "first_bad_line": None, "reason": "审计事件数量与锚点不符（疑似截断）"}
+            if checked and anchor.get("last_hash") != prev_hash:
+                return {"ok": False, "checked": checked, "legacy": legacy,
+                        "first_bad_line": None, "reason": "审计末尾哈希与锚点不符（疑似截断）"}
+        return {"ok": True, "checked": checked, "legacy": legacy,
+                "first_bad_line": None, "reason": None}
 
     def _last_entry_hash(self) -> str:
         if not self.path.exists():
@@ -116,8 +186,122 @@ class AuditLogger:
             dst = self.path.with_suffix(f".log.{i + 1}")
             if src.exists():
                 src.replace(dst)
+            src_anchor = self._anchor_path(src)
+            dst_anchor = self._anchor_path(dst)
+            if src_anchor.exists():
+                src_anchor.replace(dst_anchor)
         backup = self.path.with_suffix(".log.1")
         self.path.replace(backup)
+        anchor = self._anchor_path(self.path)
+        if anchor.exists():
+            anchor.replace(self._anchor_path(backup))
+
+    @staticmethod
+    def _canonical(payload: dict[str, Any]) -> bytes:
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+    def _key_path(self) -> Path:
+        return self.path.with_name(f"{self.path.name}.key")
+
+    def _anchor_path(self, path: Path) -> Path:
+        return path.with_name(f"{path.name}.anchor.json")
+
+    def _load_key(self) -> bytes:
+        configured = os.environ.get("SAFEOPS_AUDIT_HMAC_KEY", "")
+        if configured:
+            return configured.encode("utf-8")
+        path = self._key_path()
+        if path.is_file():
+            return path.read_bytes()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        key = secrets.token_hex(32).encode("ascii")
+        temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temporary.write_bytes(key)
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        try:
+            temporary.replace(path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+        return path.read_bytes()
+
+    def _write_anchor(self, path: Path, last_hash: str, count: int) -> None:
+        anchor = {"last_hash": last_hash, "count": count}
+        anchor["hmac"] = hmac.new(
+            self._load_key(),
+            self._canonical(anchor),
+            hashlib.sha256,
+        ).hexdigest()
+        target = self._anchor_path(path)
+        temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+        temporary.write_text(
+            json.dumps(anchor, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        temporary.replace(target)
+
+    def _read_anchor(self, path: Path) -> dict[str, Any] | None:
+        target = self._anchor_path(path)
+        if not target.is_file():
+            return None
+        try:
+            anchor = json.loads(target.read_text(encoding="utf-8"))
+            signature = anchor.pop("hmac")
+        except (OSError, json.JSONDecodeError, KeyError, AttributeError):
+            return None
+        expected = hmac.new(
+            self._load_key(),
+            self._canonical(anchor),
+            hashlib.sha256,
+        ).hexdigest()
+        if not isinstance(signature, str) or not hmac.compare_digest(signature, expected):
+            return None
+        return anchor
+
+    @staticmethod
+    def _event_count(path: Path) -> int:
+        if not path.is_file():
+            return 0
+        with path.open(encoding="utf-8") as file:
+            return sum(1 for line in file if line.strip())
+
+    def _lock_path(self) -> Path:
+        return self.path.with_name(f"{self.path.name}.lock")
+
+    @contextmanager
+    def _process_lock(self):
+        lock_path = self._lock_path()
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.LOCK_TIMEOUT_SECONDS
+        descriptor: int | None = None
+        while descriptor is None:
+            try:
+                descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.write(descriptor, str(os.getpid()).encode("ascii"))
+            except FileExistsError:
+                try:
+                    stale = time.time() - lock_path.stat().st_mtime > self.LOCK_TIMEOUT_SECONDS * 4
+                except OSError:
+                    stale = False
+                if stale:
+                    lock_path.unlink(missing_ok=True)
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("timed out waiting for audit log process lock")
+                time.sleep(0.02)
+        try:
+            yield
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            lock_path.unlink(missing_ok=True)
 
     def recent(self, limit: int = 20) -> list[dict[str, Any]]:
         if not self.path.exists():

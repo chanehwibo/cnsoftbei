@@ -160,6 +160,9 @@ class AuditLogRotationTest(unittest.TestCase):
         backup = log_path.with_suffix(".log.1")
         self.assertTrue(backup.exists())
         self.assertLess(log_path.stat().st_size, 2048)
+        report = logger.verify()
+        self.assertTrue(report["ok"], msg=str(report))
+        self.assertGreater(report["segments"], 1)
 
     def test_recent_works_after_rotation(self):
         temp_dir = tempfile.TemporaryDirectory()

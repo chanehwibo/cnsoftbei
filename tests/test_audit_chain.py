@@ -28,6 +28,9 @@ class AuditHashChainTest(unittest.TestCase):
         events = self.logger.recent(2)
         self.assertEqual(events[0]["prev_hash"], AuditLogger.GENESIS_HASH)
         self.assertEqual(events[1]["prev_hash"], events[0]["entry_hash"])
+        self.assertIn("entry_hmac", events[0])
+        self.assertTrue(self.path.with_name("audit.log.anchor.json").is_file())
+        self.assertTrue(self.path.with_name("audit.log.key").is_file())
 
     def test_content_tampering_detected(self):
         self._write_events()
@@ -51,6 +54,24 @@ class AuditHashChainTest(unittest.TestCase):
         report = self.logger.verify()
         self.assertFalse(report["ok"])
         self.assertIn("断裂", report["reason"])
+
+    def test_first_event_deletion_detected(self):
+        self._write_events()
+        lines = self.path.read_text(encoding="utf-8").splitlines()
+        self.path.write_text("\n".join(lines[1:]) + "\n", encoding="utf-8")
+
+        report = self.logger.verify()
+        self.assertFalse(report["ok"])
+        self.assertIn("断裂", report["reason"])
+
+    def test_tail_truncation_detected_by_anchor(self):
+        self._write_events()
+        lines = self.path.read_text(encoding="utf-8").splitlines()
+        self.path.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")
+
+        report = self.logger.verify()
+        self.assertFalse(report["ok"])
+        self.assertIn("锚点", report["reason"])
 
     def test_legacy_events_tolerated_at_head(self):
         # 哈希链上线前的旧事件（无哈希字段）只允许出现在文件头部
