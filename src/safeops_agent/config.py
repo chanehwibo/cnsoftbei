@@ -56,6 +56,9 @@ def load_app_config() -> dict[str, Any]:
         "web_host": "127.0.0.1",
         "web_port": 8765,
         "require_auth": False,
+        "tls_enabled": False,
+        "tls_cert_file": "",
+        "tls_key_file": "",
     }
     config.update(load_simple_yaml(_config_path("app.yaml")))
     config["web_port"] = int(config.get("web_port", 8765))

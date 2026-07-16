@@ -80,8 +80,20 @@ def _check_app(app: dict[str, Any], errors: list[str]) -> None:
     require_auth = app.get("require_auth", False)
     if not isinstance(require_auth, bool):
         errors.append("app.yaml: require_auth 必须是 true/false")
+    tls_enabled = app.get("tls_enabled", False)
+    if not isinstance(tls_enabled, bool):
+        errors.append("app.yaml: tls_enabled 必须是 true/false")
+    cert_file = app.get("tls_cert_file", "")
+    key_file = app.get("tls_key_file", "")
+    if tls_enabled is True:
+        if not isinstance(cert_file, str) or not cert_file.strip():
+            errors.append("app.yaml: tls_enabled=true 时 tls_cert_file 不能为空")
+        if not isinstance(key_file, str) or not key_file.strip():
+            errors.append("app.yaml: tls_enabled=true 时 tls_key_file 不能为空")
     if isinstance(web_host, str) and web_host not in {"127.0.0.1", "::1", "localhost"} and require_auth is not True:
         errors.append("app.yaml: 非本机回环地址必须设置 require_auth: true")
+    if isinstance(web_host, str) and web_host not in {"127.0.0.1", "::1", "localhost"} and tls_enabled is not True:
+        errors.append("app.yaml: 非本机回环地址必须启用 TLS")
 
 
 def _check_policy(policy: dict[str, Any], errors: list[str], warnings: list[str]) -> None:

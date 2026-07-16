@@ -2,3 +2,6 @@ audit_log: data/audit.log
 web_host: 127.0.0.1
 web_port: 8765
 require_auth: false
+tls_enabled: false
+tls_cert_file: ""
+tls_key_file: ""

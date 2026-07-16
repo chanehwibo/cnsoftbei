@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import secrets
+import ssl
 import threading
 import time
 from http import HTTPStatus
@@ -61,6 +62,10 @@ MAX_BODY_SIZE: int = 65536
 ACCESS_LOG: bool = os.environ.get("SAFEOPS_ACCESS_LOG", "0") == "1"
 CORS_ORIGIN: str = os.environ.get("SAFEOPS_CORS_ORIGIN", "")
 AUTH_SESSION_TTL: int = 8 * 60 * 60
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+SECURE_TRANSPORT: bool = bool(APP_CONFIG.get("tls_enabled")) or os.environ.get(
+    "SAFEOPS_BEHIND_HTTPS_PROXY", ""
+) == "1"
 
 
 class _WebSessionAuth:
@@ -155,6 +160,8 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-XSS-Protection", "1; mode=block")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        if SECURE_TRANSPORT:
+            self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; connect-src 'self'; object-src 'none'; "
@@ -337,7 +344,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             f"SafeOps-Session={session}; HttpOnly; SameSite=Strict; "
             f"Path=/; Max-Age={AUTH_SESSION_TTL}"
         )
-        if os.environ.get("SAFEOPS_HTTPS", "") == "1":
+        if SECURE_TRANSPORT:
             cookie += "; Secure"
         data = json.dumps({"ok": True, "required": True}, ensure_ascii=False).encode("utf-8")
         self.send_response(HTTPStatus.OK)
@@ -435,13 +442,36 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+def _build_server(host: str, port: int, config: dict | None = None) -> tuple[ThreadingHTTPServer, str]:
+    active = APP_CONFIG if config is None else config
+    tls_enabled = bool(active.get("tls_enabled"))
+    if host not in LOOPBACK_HOSTS and not tls_enabled:
+        raise RuntimeError("TLS is required when Web host is not loopback")
+
+    server = ThreadingHTTPServer((host, port), SafeOpsWebHandler)
+    if not tls_enabled:
+        return server, "http"
+
+    cert_path = resolve_project_path(str(active.get("tls_cert_file", "")))
+    key_path = resolve_project_path(str(active.get("tls_key_file", "")))
+    if not cert_path.is_file() or not key_path.is_file():
+        server.server_close()
+        raise RuntimeError("TLS certificate or private key file does not exist")
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    return server, "https"
+
+
 def main() -> int:
     host = str(APP_CONFIG["web_host"])
     port = int(APP_CONFIG["web_port"])
-    if (bool(APP_CONFIG.get("require_auth")) or host not in {"127.0.0.1", "::1", "localhost"}) and not API_TOKEN:
+    if (bool(APP_CONFIG.get("require_auth")) or host not in LOOPBACK_HOSTS) and not API_TOKEN:
         raise RuntimeError("SAFEOPS_TOKEN is required when Web authentication is enabled or host is not loopback")
-    server = ThreadingHTTPServer((host, port), SafeOpsWebHandler)
-    print(f"SafeOps Web running at http://{host}:{port}", flush=True)
+    server, scheme = _build_server(host, port)
+    print(f"SafeOps Web running at {scheme}://{host}:{port}", flush=True)
     print(f"LLM 意图理解：{get_provider().describe()}", flush=True)
     try:
         server.serve_forever()

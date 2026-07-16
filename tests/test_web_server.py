@@ -1,7 +1,10 @@
 import http.client
 import json
+import tempfile
 import threading
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import safeops_agent.web_server as web
 
@@ -11,9 +14,11 @@ class WebAuthenticationTest(unittest.TestCase):
         self.old_token = web.API_TOKEN
         self.old_auth = web._session_auth
         self.old_limiter = web._limiter
+        self.old_secure_transport = web.SECURE_TRANSPORT
         web.API_TOKEN = "test-token"
         web._session_auth = web._WebSessionAuth()
         web._limiter = web._RateLimiter(max_requests=1000, window=60)
+        web.SECURE_TRANSPORT = False
         self.server = web.ThreadingHTTPServer(("127.0.0.1", 0), web.SafeOpsWebHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -25,6 +30,7 @@ class WebAuthenticationTest(unittest.TestCase):
         web.API_TOKEN = self.old_token
         web._session_auth = self.old_auth
         web._limiter = self.old_limiter
+        web.SECURE_TRANSPORT = self.old_secure_transport
 
     def request(self, method, path, payload=None, headers=None):
         body = None
@@ -83,6 +89,49 @@ class WebAuthenticationTest(unittest.TestCase):
         status, _, payload = self.request("POST", "/api/auth", {"token": "wrong"})
         self.assertEqual(status, 401)
         self.assertFalse(payload["ok"])
+
+    def test_secure_transport_sets_hsts_and_secure_cookie(self):
+        web.SECURE_TRANSPORT = True
+        status, headers, _ = self.request("POST", "/api/auth", {"token": "test-token"})
+
+        self.assertEqual(status, 200)
+        self.assertIn("Secure", headers["Set-Cookie"])
+        self.assertIn("max-age=31536000", headers["Strict-Transport-Security"])
+
+
+class WebTlsConfigurationTest(unittest.TestCase):
+    def test_non_loopback_plain_http_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "TLS"):
+            web._build_server("0.0.0.0", 0, {"tls_enabled": False})
+
+    def test_tls_wraps_server_socket_and_requires_tls_1_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cert = Path(directory) / "server.crt"
+            key = Path(directory) / "server.key"
+            cert.write_text("test", encoding="utf-8")
+            key.write_text("test", encoding="utf-8")
+            context = mock.Mock()
+            context.wrap_socket.side_effect = lambda sock, server_side: sock
+            with mock.patch.object(web.ssl, "SSLContext", return_value=context):
+                server, scheme = web._build_server(
+                    "127.0.0.1",
+                    0,
+                    {
+                        "tls_enabled": True,
+                        "tls_cert_file": str(cert),
+                        "tls_key_file": str(key),
+                    },
+                )
+            try:
+                self.assertEqual(scheme, "https")
+                self.assertEqual(context.minimum_version, web.ssl.TLSVersion.TLSv1_2)
+                context.load_cert_chain.assert_called_once_with(
+                    certfile=str(cert),
+                    keyfile=str(key),
+                )
+                context.wrap_socket.assert_called_once()
+            finally:
+                server.server_close()
 
 
 if __name__ == "__main__":

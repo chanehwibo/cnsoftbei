@@ -76,6 +76,22 @@ class ConfigCheckTest(unittest.TestCase):
 
             self.assertFalse(report["ok"])
             self.assertTrue(any("非本机回环地址" in message for message in report["errors"]))
+            self.assertTrue(any("启用 TLS" in message for message in report["errors"]))
+
+    def test_tls_requires_certificate_and_key_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_valid_configs(Path(temp_dir))
+            write_config(
+                Path(temp_dir),
+                "app.yaml",
+                "audit_log: data/audit.log\nweb_host: 127.0.0.1\nweb_port: 8765\n"
+                "require_auth: true\ntls_enabled: true\ntls_cert_file: ''\ntls_key_file: ''\n",
+            )
+            report = validate_configs(temp_dir)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("tls_cert_file" in message for message in report["errors"]))
+            self.assertTrue(any("tls_key_file" in message for message in report["errors"]))
 
     def test_empty_destructive_keywords_is_error(self):
         with tempfile.TemporaryDirectory() as temp_dir:

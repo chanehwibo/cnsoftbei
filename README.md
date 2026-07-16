@@ -69,7 +69,7 @@ python -m safeops_agent.cli "覆盖 /etc/passwd" --json
 powershell -ExecutionPolicy Bypass -File scripts\web.ps1
 ~~~
 
-默认地址是 `http://127.0.0.1:8765`。非回环地址必须启用认证并设置 `SAFEOPS_TOKEN`；浏览器登录后使用 HttpOnly 会话 Cookie。
+默认地址是 `http://127.0.0.1:8765`。非回环地址必须同时启用原生 TLS、认证并设置 `SAFEOPS_TOKEN`；浏览器登录后使用 HttpOnly 会话 Cookie。HTTPS 反向代理必须让应用继续绑定回环地址，并设置 `SAFEOPS_BEHIND_HTTPS_PROXY=1`。
 
 启动 MCP stdio 服务：
 
