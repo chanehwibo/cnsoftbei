@@ -116,6 +116,7 @@ class AuditLogger:
         legacy = 0
         prev_hash: str | None = None
         key = self._load_key()
+        missing = object()
         with path.open(encoding="utf-8") as file:
             for line_no, raw in enumerate(file, start=1):
                 line = raw.strip()
@@ -126,18 +127,27 @@ class AuditLogger:
                 except json.JSONDecodeError:
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "存在无法解析的事件行"}
-                entry_hmac = event.pop("entry_hmac", None)
+                entry_hmac = event.pop("entry_hmac", missing)
                 entry_hash = event.pop("entry_hash", None)
                 if entry_hash is None:
-                    if checked:
+                    if checked or prev_hash is not None:
                         return {"ok": False, "checked": checked, "legacy": legacy,
                                 "first_bad_line": line_no,
                                 "reason": "哈希链启用后出现无哈希事件（疑似删改）"}
                     legacy += 1
                     continue
-                recomputed = hashlib.sha256(
-                    self._canonical(event)
-                ).hexdigest()
+                if entry_hmac is missing:
+                    if checked:
+                        return {"ok": False, "checked": checked, "legacy": legacy,
+                                "first_bad_line": line_no,
+                                "reason": "HMAC 签名链启用后出现旧式 SHA 事件（疑似删改）"}
+                    recomputed = hashlib.sha256(
+                        self._legacy_canonical(event)
+                    ).hexdigest()
+                else:
+                    recomputed = hashlib.sha256(
+                        self._canonical(event)
+                    ).hexdigest()
                 if recomputed != entry_hash:
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "事件内容与哈希不符（内容被篡改）"}
@@ -145,6 +155,10 @@ class AuditLogger:
                 if event.get("prev_hash") != expected_prev:
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "链条断裂（事件被删除或重排）"}
+                prev_hash = entry_hash
+                if entry_hmac is missing:
+                    legacy += 1
+                    continue
                 if not isinstance(entry_hmac, str):
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "事件缺少 HMAC 签名"}
@@ -157,19 +171,24 @@ class AuditLogger:
                 if not hmac.compare_digest(entry_hmac, expected_hmac):
                     return {"ok": False, "checked": checked, "legacy": legacy,
                             "first_bad_line": line_no, "reason": "事件 HMAC 签名无效"}
-                prev_hash = entry_hash
                 checked += 1
         anchor = self._read_anchor(path)
-        if checked or legacy:
+        if checked:
             if anchor is None:
                 return {"ok": False, "checked": checked, "legacy": legacy,
                         "first_bad_line": None, "reason": "审计锚点缺失"}
             if anchor.get("count") != checked + legacy:
                 return {"ok": False, "checked": checked, "legacy": legacy,
                         "first_bad_line": None, "reason": "审计事件数量与锚点不符（疑似截断）"}
-            if checked and anchor.get("last_hash") != prev_hash:
+            if anchor.get("last_hash") != prev_hash:
                 return {"ok": False, "checked": checked, "legacy": legacy,
                         "first_bad_line": None, "reason": "审计末尾哈希与锚点不符（疑似截断）"}
+        elif anchor is not None:
+            if anchor.get("count") != legacy or (
+                prev_hash is not None and anchor.get("last_hash") != prev_hash
+            ):
+                return {"ok": False, "checked": checked, "legacy": legacy,
+                        "first_bad_line": None, "reason": "旧式审计链与已有锚点不符"}
         return {"ok": True, "checked": checked, "legacy": legacy,
                 "first_bad_line": None, "reason": None}
 
@@ -217,6 +236,15 @@ class AuditLogger:
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
+        ).encode("utf-8")
+
+    @staticmethod
+    def _legacy_canonical(payload: dict[str, Any]) -> bytes:
+        """旧版本 SHA 链使用带默认空格的 JSON；仅用于只读兼容校验。"""
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
         ).encode("utf-8")
 
     @classmethod

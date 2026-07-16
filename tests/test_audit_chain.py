@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -16,6 +17,15 @@ class AuditHashChainTest(unittest.TestCase):
     def _write_events(self, count=3):
         for i in range(count):
             self.logger.record({"event_type": "test", "n": i})
+
+    def _append_legacy_sha_event(self, event):
+        previous = self.logger._last_entry_hash()
+        payload = {**event, "prev_hash": previous}
+        payload["entry_hash"] = hashlib.sha256(
+            AuditLogger._legacy_canonical(payload)
+        ).hexdigest()
+        with self.path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
 
     def test_intact_chain_verifies(self):
         self._write_events()
@@ -84,6 +94,37 @@ class AuditHashChainTest(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertEqual(report["legacy"], 1)
         self.assertEqual(report["checked"], 2)
+
+    def test_legacy_sha_chain_is_verified_then_anchored_by_new_record(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            json.dumps({"event_type": "plain-legacy"}, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        self._append_legacy_sha_event({"event_type": "sha-legacy", "n": 1})
+        self._append_legacy_sha_event({"event_type": "sha-legacy", "n": 2})
+
+        legacy_report = self.logger.verify()
+        self.assertTrue(legacy_report["ok"])
+        self.assertEqual(legacy_report["legacy"], 3)
+        self.assertEqual(legacy_report["checked"], 0)
+
+        self.logger.record({"event_type": "signed"})
+        upgraded_report = self.logger.verify()
+        self.assertTrue(upgraded_report["ok"])
+        self.assertEqual(upgraded_report["legacy"], 3)
+        self.assertEqual(upgraded_report["checked"], 1)
+
+    def test_tampered_legacy_sha_event_is_rejected(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._append_legacy_sha_event({"event_type": "sha-legacy", "n": 1})
+        event = json.loads(self.path.read_text(encoding="utf-8"))
+        event["n"] = 2
+        self.path.write_text(json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        report = self.logger.verify()
+        self.assertFalse(report["ok"])
+        self.assertIn("篡改", report["reason"])
 
     def test_empty_log_ok(self):
         report = self.logger.verify()
