@@ -78,6 +78,41 @@ class ConfigCheckTest(unittest.TestCase):
             self.assertTrue(any("非本机回环地址" in message for message in report["errors"]))
             self.assertTrue(any("启用 TLS" in message for message in report["errors"]))
 
+    def test_authentication_can_only_be_disabled_in_explicit_loopback_development_mode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_valid_configs(Path(temp_dir))
+            write_config(
+                Path(temp_dir),
+                "app.yaml",
+                "audit_log: data/audit.log\nweb_host: 127.0.0.1\nweb_port: 8765\nrequire_auth: false\n",
+            )
+            report = validate_configs(temp_dir)
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("非开发模式" in message for message in report["errors"]))
+
+            write_config(
+                Path(temp_dir),
+                "app.yaml",
+                "audit_log: data/audit.log\nweb_host: 127.0.0.1\nweb_port: 8765\n"
+                "require_auth: false\ndevelopment_mode: true\n",
+            )
+            report = validate_configs(temp_dir)
+            self.assertTrue(report["ok"], msg=str(report["errors"]))
+
+    def test_development_mode_cannot_bind_non_loopback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_valid_configs(Path(temp_dir))
+            write_config(
+                Path(temp_dir),
+                "app.yaml",
+                "audit_log: data/audit.log\nweb_host: 0.0.0.0\nweb_port: 8765\n"
+                "require_auth: false\ndevelopment_mode: true\ntls_enabled: true\n"
+                "tls_cert_file: cert.pem\ntls_key_file: key.pem\n",
+            )
+            report = validate_configs(temp_dir)
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("development_mode 仅允许" in message for message in report["errors"]))
+
     def test_tls_requires_certificate_and_key_paths(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_valid_configs(Path(temp_dir))

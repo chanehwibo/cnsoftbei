@@ -15,10 +15,12 @@ class WebAuthenticationTest(unittest.TestCase):
         self.old_auth = web._session_auth
         self.old_limiter = web._limiter
         self.old_secure_transport = web.SECURE_TRANSPORT
+        self.old_development_mode = web.DEVELOPMENT_MODE
         web.API_TOKEN = "test-token"
         web._session_auth = web._WebSessionAuth()
         web._limiter = web._RateLimiter(max_requests=1000, window=60)
         web.SECURE_TRANSPORT = False
+        web.DEVELOPMENT_MODE = False
         self.server = web.ThreadingHTTPServer(("127.0.0.1", 0), web.SafeOpsWebHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -31,6 +33,7 @@ class WebAuthenticationTest(unittest.TestCase):
         web._session_auth = self.old_auth
         web._limiter = self.old_limiter
         web.SECURE_TRANSPORT = self.old_secure_transport
+        web.DEVELOPMENT_MODE = self.old_development_mode
 
     def request(self, method, path, payload=None, headers=None):
         body = None
@@ -132,6 +135,30 @@ class WebTlsConfigurationTest(unittest.TestCase):
                 context.wrap_socket.assert_called_once()
             finally:
                 server.server_close()
+
+
+class WebStartupAuthenticationTest(unittest.TestCase):
+    def test_default_mode_rejects_empty_token(self):
+        with self.assertRaisesRegex(RuntimeError, "SAFEOPS_TOKEN"):
+            web._validate_startup_auth(
+                "127.0.0.1",
+                {"require_auth": True, "development_mode": False},
+                token="",
+            )
+
+    def test_authentication_cannot_be_silently_disabled(self):
+        with self.assertRaisesRegex(RuntimeError, "explicit development_mode"):
+            web._validate_startup_auth(
+                "127.0.0.1",
+                {"require_auth": False, "development_mode": False},
+                token="unused",
+            )
+
+    def test_explicit_development_mode_is_loopback_only(self):
+        config = {"require_auth": False, "development_mode": True}
+        web._validate_startup_auth("127.0.0.1", config, token="")
+        with self.assertRaisesRegex(RuntimeError, "loopback"):
+            web._validate_startup_auth("0.0.0.0", config, token="")
 
 
 if __name__ == "__main__":

@@ -85,7 +85,7 @@ powershell -ExecutionPolicy Bypass -File scripts\web.ps1
 
 浏览器访问 `http://127.0.0.1:8765`。页面可完成自然语言请求、令牌确认、决策轨迹查看和审计查询。
 
-本机回环默认可不设置令牌。启用认证时：
+Web 默认启用认证，先设置强随机令牌：
 
 ~~~powershell
 $env:SAFEOPS_TOKEN='使用足够长的随机值'
@@ -93,6 +93,8 @@ powershell -ExecutionPolicy Bypass -File scripts\web.ps1
 ~~~
 
 浏览器提交令牌后获得 HttpOnly 会话 Cookie。SSE 不接受 URL 查询参数令牌。
+
+仅本机开发调试时，可在 `config/app.yaml` 同时设置 `development_mode: true` 和 `require_auth: false`。该模式只能绑定回环地址，禁止用于生产环境。
 
 关闭 Web：
 

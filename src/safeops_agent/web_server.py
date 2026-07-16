@@ -56,6 +56,7 @@ def _get_session(session_key: str) -> tuple[SafeOpsAgent, threading.Lock]:
         return entry["agent"], entry["lock"]
 
 API_TOKEN: str = os.environ.get("SAFEOPS_TOKEN", "")
+DEVELOPMENT_MODE: bool = bool(APP_CONFIG.get("development_mode", False))
 RATE_LIMIT_MAX: int = 30
 RATE_LIMIT_WINDOW: int = 60
 MAX_BODY_SIZE: int = 65536
@@ -179,7 +180,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _check_auth(self) -> bool:
-        if not API_TOKEN:
+        if DEVELOPMENT_MODE:
             return True
         auth = self.headers.get("Authorization", "")
         expected = f"Bearer {API_TOKEN}"
@@ -209,7 +210,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             self._json({"ok": True, "service": "safeops-web"})
             return
         if path == "/api/auth/status":
-            self._json({"ok": True, "required": bool(API_TOKEN)})
+            self._json({"ok": True, "required": not DEVELOPMENT_MODE})
             return
         if not path.startswith("/api/"):
             self._serve_static(path)
@@ -333,7 +334,7 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self._json({"ok": False, "error": "json body must be an object"}, HTTPStatus.BAD_REQUEST)
             return
-        if not API_TOKEN:
+        if DEVELOPMENT_MODE:
             self._json({"ok": True, "required": False})
             return
         session = _session_auth.login(str(payload.get("token", "")))
@@ -465,11 +466,27 @@ def _build_server(host: str, port: int, config: dict | None = None) -> tuple[Thr
     return server, "https"
 
 
+def _validate_startup_auth(host: str, config: dict | None = None, token: str | None = None) -> None:
+    active = APP_CONFIG if config is None else config
+    active_token = API_TOKEN if token is None else token
+    development_mode = bool(active.get("development_mode", False))
+    require_auth = active.get("require_auth", True)
+    if development_mode:
+        if host not in LOOPBACK_HOSTS:
+            raise RuntimeError("development_mode is only allowed on a loopback Web host")
+        if require_auth is not False:
+            raise RuntimeError("development_mode requires require_auth: false")
+        return
+    if require_auth is not True:
+        raise RuntimeError("Web authentication can only be disabled in explicit development_mode")
+    if not active_token:
+        raise RuntimeError("SAFEOPS_TOKEN is required; set development_mode explicitly for loopback-only development")
+
+
 def main() -> int:
     host = str(APP_CONFIG["web_host"])
     port = int(APP_CONFIG["web_port"])
-    if (bool(APP_CONFIG.get("require_auth")) or host not in LOOPBACK_HOSTS) and not API_TOKEN:
-        raise RuntimeError("SAFEOPS_TOKEN is required when Web authentication is enabled or host is not loopback")
+    _validate_startup_auth(host)
     server, scheme = _build_server(host, port)
     print(f"SafeOps Web running at {scheme}://{host}:{port}", flush=True)
     print(f"LLM 意图理解：{get_provider().describe()}", flush=True)

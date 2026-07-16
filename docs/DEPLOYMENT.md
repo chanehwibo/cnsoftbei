@@ -76,7 +76,7 @@ tls_cert_file: config/tls/server.crt
 tls_key_file: config/tls/server.key
 ~~~
 
-同时设置强随机 `SAFEOPS_TOKEN`。服务端最低接受 TLS 1.2，发送 HSTS；证书或私钥缺失时拒绝启动。
+所有非开发部署都必须设置强随机 `SAFEOPS_TOKEN`；变量缺失时服务拒绝启动。服务端最低接受 TLS 1.2，发送 HSTS；证书或私钥缺失时拒绝启动。
 
 使用 HTTPS 反向代理时，应用必须继续绑定 `127.0.0.1`，由代理终止 TLS，并设置 `SAFEOPS_BEHIND_HTTPS_PROXY=1`，使会话 Cookie 带 `Secure`。应用拒绝非回环地址上的明文 HTTP。
 

@@ -112,7 +112,7 @@ PendingActionStore 和受管文件事务均使用：
 
 Web 基于 ThreadingHTTPServer：
 
-- 本机回环可按配置免认证；
+- 默认必须设置 `SAFEOPS_TOKEN`；仅显式开发模式可在本机回环地址免认证；
 - 非回环监听必须同时启用原生 TLS、认证并设置 `SAFEOPS_TOKEN`；
 - 原生 TLS 最低使用 TLS 1.2，并发送 HSTS 响应头；
 - `POST /api/auth` 建立 HttpOnly、SameSite=Strict 会话 Cookie；

@@ -77,9 +77,12 @@ def _check_app(app: dict[str, Any], errors: list[str]) -> None:
     web_port = app.get("web_port")
     if not isinstance(web_port, int) or isinstance(web_port, bool) or not (1 <= web_port <= 65535):
         errors.append("app.yaml: web_port 必须是 1-65535 的整数")
-    require_auth = app.get("require_auth", False)
+    require_auth = app.get("require_auth", True)
     if not isinstance(require_auth, bool):
         errors.append("app.yaml: require_auth 必须是 true/false")
+    development_mode = app.get("development_mode", False)
+    if not isinstance(development_mode, bool):
+        errors.append("app.yaml: development_mode 必须是 true/false")
     tls_enabled = app.get("tls_enabled", False)
     if not isinstance(tls_enabled, bool):
         errors.append("app.yaml: tls_enabled 必须是 true/false")
@@ -90,6 +93,12 @@ def _check_app(app: dict[str, Any], errors: list[str]) -> None:
             errors.append("app.yaml: tls_enabled=true 时 tls_cert_file 不能为空")
         if not isinstance(key_file, str) or not key_file.strip():
             errors.append("app.yaml: tls_enabled=true 时 tls_key_file 不能为空")
+    if development_mode is True and require_auth is not False:
+        errors.append("app.yaml: development_mode=true 时必须显式设置 require_auth: false")
+    if development_mode is not True and require_auth is not True:
+        errors.append("app.yaml: 非开发模式必须设置 require_auth: true")
+    if development_mode is True and isinstance(web_host, str) and web_host not in {"127.0.0.1", "::1", "localhost"}:
+        errors.append("app.yaml: development_mode 仅允许本机回环地址")
     if isinstance(web_host, str) and web_host not in {"127.0.0.1", "::1", "localhost"} and require_auth is not True:
         errors.append("app.yaml: 非本机回环地址必须设置 require_auth: true")
     if isinstance(web_host, str) and web_host not in {"127.0.0.1", "::1", "localhost"} and tls_enabled is not True:
