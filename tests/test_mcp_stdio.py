@@ -15,6 +15,13 @@ def make_server() -> McpStdioServer:
     return McpStdioServer(stdin=io.StringIO(), stdout=io.StringIO())
 
 
+def make_initialized_server() -> McpStdioServer:
+    server = make_server()
+    server.handle_message(req("initialize", {"protocolVersion": PROTOCOL_VERSION}))
+    server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    return server
+
+
 def req(method, params=None, msg_id=1):
     msg = {"jsonrpc": "2.0", "method": method}
     if msg_id is not None:
@@ -42,14 +49,25 @@ class InitializeTest(unittest.TestCase):
 
     def test_initialized_notification_no_response(self):
         server = make_server()
+        server.handle_message(req("initialize", {"protocolVersion": PROTOCOL_VERSION}))
         resp = server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
         self.assertIsNone(resp)
         self.assertTrue(server._initialized)
 
+    def test_current_protocol_version_is_supported(self):
+        self.assertEqual(PROTOCOL_VERSION, "2025-11-25")
+
+    def test_tools_are_rejected_before_initialized_notification(self):
+        server = make_server()
+        server.handle_message(req("initialize", {"protocolVersion": PROTOCOL_VERSION}))
+        response = server.handle_message(req("tools/list", msg_id=2))
+
+        self.assertIn("error", response)
+
 
 class ToolsListTest(unittest.TestCase):
     def test_tools_list_shape(self):
-        server = make_server()
+        server = make_initialized_server()
         resp = server.handle_message(req("tools/list"))
         tools = resp["result"]["tools"]
         self.assertTrue(len(tools) > 0)
@@ -60,7 +78,7 @@ class ToolsListTest(unittest.TestCase):
         self.assertEqual(first["inputSchema"]["type"], "object")
 
     def test_system_info_is_readonly_hint(self):
-        server = make_server()
+        server = make_initialized_server()
         resp = server.handle_message(req("tools/list"))
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         self.assertTrue(tools["system.info"]["annotations"]["readOnlyHint"])
@@ -68,7 +86,7 @@ class ToolsListTest(unittest.TestCase):
 
 class ToolsCallTest(unittest.TestCase):
     def test_call_low_risk_tool_ok(self):
-        server = make_server()
+        server = make_initialized_server()
         resp = server.handle_message(req("tools/call", {"name": "system.info", "arguments": {}}))
         result = resp["result"]
         self.assertFalse(result["isError"])
@@ -77,7 +95,7 @@ class ToolsCallTest(unittest.TestCase):
         self.assertTrue(result["structuredContent"]["ok"])
 
     def test_call_medium_tool_requires_confirmation(self):
-        server = make_server()
+        server = make_initialized_server()
         resp = server.handle_message(
             req("tools/call", {"name": "service.restart", "arguments": {"service": "nginx"}})
         )
@@ -86,7 +104,7 @@ class ToolsCallTest(unittest.TestCase):
         self.assertTrue(result["structuredContent"]["requires_confirmation"])
 
     def test_call_blocks_command_injection(self):
-        server = make_server()
+        server = make_initialized_server()
         resp = server.handle_message(
             req("tools/call", {"name": "service.status", "arguments": {"service": "nginx;rm -rf /"}})
         )
@@ -95,13 +113,13 @@ class ToolsCallTest(unittest.TestCase):
         self.assertEqual(result["structuredContent"]["error_code"], "ARG_COMMAND_INJECTION")
 
     def test_call_unknown_tool(self):
-        server = make_server()
+        server = make_initialized_server()
         resp = server.handle_message(req("tools/call", {"name": "does.not.exist", "arguments": {}}))
         self.assertTrue(resp["result"]["isError"])
         self.assertEqual(resp["result"]["structuredContent"]["error_code"], "TOOL_NOT_FOUND")
 
     def test_call_missing_name_is_invalid_params(self):
-        server = make_server()
+        server = make_initialized_server()
         resp = server.handle_message(req("tools/call", {"arguments": {}}))
         self.assertEqual(resp["error"]["code"], INVALID_PARAMS)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from safeops_agent.audit.logger import AuditLogger
@@ -35,9 +36,12 @@ class McpToolService:
                 "category": tool.category,
                 "risk": tool.risk.value,
                 "inputSchema": self._input_schema(tool),
+                "outputSchema": self._output_schema(),
                 "annotations": {
                     "readOnlyHint": tool.risk.value == "LOW",
                     "destructiveHint": tool.risk.value == "HIGH",
+                    "idempotentHint": tool.risk.value == "LOW",
+                    "openWorldHint": False,
                     "requiresConfirmation": tool.risk.value == "MEDIUM",
                 },
             }
@@ -54,9 +58,12 @@ class McpToolService:
                 "required": ["action_id"],
                 "additionalProperties": False,
             },
+            "outputSchema": self._output_schema(),
             "annotations": {
                 "readOnlyHint": False,
                 "destructiveHint": False,
+                "idempotentHint": False,
+                "openWorldHint": False,
                 "requiresConfirmation": False,
             },
         })
@@ -81,6 +88,17 @@ class McpToolService:
 
     def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == self.CONFIRM_TOOL:
+            error = self._validate_schema(
+                args,
+                {
+                    "type": "object",
+                    "properties": {"action_id": {"type": "string", "minLength": 32, "maxLength": 64}},
+                    "required": ["action_id"],
+                    "additionalProperties": False,
+                },
+            )
+            if error:
+                return self._schema_error("MEDIUM", error)
             return self._confirm(str(args.get("action_id", "")).strip())
         if name not in self.tools:
             return {
@@ -92,6 +110,9 @@ class McpToolService:
                 "data": {},
             }
         tool = self.tools[name]
+        schema_error = self._validate_schema(args, self._input_schema(tool))
+        if schema_error:
+            return self._schema_error(tool.risk.value, schema_error)
         decision = self.policy.evaluate_tool(tool, args=args, confirmed=False)
         if not decision.allowed:
             data: dict[str, Any] = {}
@@ -199,3 +220,82 @@ class McpToolService:
             "required": tool.required,
             "additionalProperties": False,
         }
+
+    @staticmethod
+    def _output_schema() -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "summary": {"type": ["string", "null"]},
+                "data": {"type": "object"},
+                "error": {"type": ["string", "null"]},
+                "error_code": {"type": ["string", "null"]},
+                "risk": {"type": ["string", "null"]},
+                "requires_confirmation": {"type": "boolean"},
+            },
+            "required": ["ok", "data", "error_code", "risk", "requires_confirmation"],
+        }
+
+    @staticmethod
+    def _schema_error(risk: str, message: str) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "summary": None,
+            "data": {},
+            "error": message,
+            "error_code": "ARG_SCHEMA_VALIDATION",
+            "risk": risk,
+            "requires_confirmation": False,
+        }
+
+    @classmethod
+    def _validate_schema(cls, value: Any, schema: dict[str, Any], path: str = "arguments") -> str | None:
+        expected = schema.get("type")
+        expected_types = expected if isinstance(expected, list) else [expected] if expected else []
+        if expected_types and not cls._matches_type(value, expected_types):
+            return f"{path} 类型不匹配，期望 {expected_types}"
+        if isinstance(value, dict):
+            properties = schema.get("properties", {})
+            required = schema.get("required", [])
+            for key in required:
+                if key not in value:
+                    return f"{path} 缺少必填参数：{key}"
+            if schema.get("additionalProperties") is False:
+                extras = sorted(set(value) - set(properties))
+                if extras:
+                    return f"{path} 包含未声明参数：{', '.join(extras)}"
+            for key, item in value.items():
+                item_schema = properties.get(key)
+                if isinstance(item_schema, dict):
+                    error = cls._validate_schema(item, item_schema, f"{path}.{key}")
+                    if error:
+                        return error
+        if isinstance(value, str):
+            if "minLength" in schema and len(value) < int(schema["minLength"]):
+                return f"{path} 长度小于 {schema['minLength']}"
+            if "maxLength" in schema and len(value) > int(schema["maxLength"]):
+                return f"{path} 长度超过 {schema['maxLength']}"
+            if "pattern" in schema and re.fullmatch(str(schema["pattern"]), value) is None:
+                return f"{path} 格式不匹配"
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if "minimum" in schema and value < schema["minimum"]:
+                return f"{path} 小于最小值 {schema['minimum']}"
+            if "maximum" in schema and value > schema["maximum"]:
+                return f"{path} 超过最大值 {schema['maximum']}"
+        if "enum" in schema and value not in schema["enum"]:
+            return f"{path} 不在允许值范围"
+        return None
+
+    @staticmethod
+    def _matches_type(value: Any, expected_types: list[Any]) -> bool:
+        mapping = {
+            "null": lambda item: item is None,
+            "object": lambda item: isinstance(item, dict),
+            "array": lambda item: isinstance(item, list),
+            "string": lambda item: isinstance(item, str),
+            "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+            "number": lambda item: isinstance(item, (int, float)) and not isinstance(item, bool),
+            "boolean": lambda item: isinstance(item, bool),
+        }
+        return any(kind in mapping and mapping[kind](value) for kind in expected_types)

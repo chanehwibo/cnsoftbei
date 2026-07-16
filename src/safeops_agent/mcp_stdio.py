@@ -22,8 +22,8 @@ from typing import Any, TextIO
 
 from safeops_agent.mcp_server import McpToolService
 
-PROTOCOL_VERSION = "2024-11-05"
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+PROTOCOL_VERSION = "2025-11-25"
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 SERVER_NAME = "safeops-agent"
 SERVER_VERSION = "0.1.0"
 
@@ -47,6 +47,7 @@ class McpStdioServer:
         self.service = service if service is not None else McpToolService()
         self._in = stdin if stdin is not None else sys.stdin
         self._out = stdout if stdout is not None else sys.stdout
+        self._initialize_seen = False
         self._initialized = False
 
     # ---- 主循环 ----------------------------------------------------------
@@ -89,13 +90,20 @@ class McpStdioServer:
         }.get(method)
 
         if method == "notifications/initialized":
-            self._initialized = True
+            if self._initialize_seen:
+                self._initialized = True
             return None
 
         if handler is None:
             if is_notification:
                 return None
             return self._error_obj(msg_id, METHOD_NOT_FOUND, f"未知方法：{method}")
+        if method in {"tools/list", "tools/call"} and not self._initialized:
+            return None if is_notification else self._error_obj(
+                msg_id,
+                INVALID_REQUEST,
+                "MCP 会话尚未完成 initialize/initialized 生命周期",
+            )
 
         try:
             result = handler(params)
@@ -110,9 +118,14 @@ class McpStdioServer:
 
     # ---- 方法实现 --------------------------------------------------------
     def _on_initialize(self, params: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(params, dict):
+            raise _RpcError(INVALID_PARAMS, "initialize params 必须为对象")
         requested = params.get("protocolVersion")
+        if not isinstance(requested, str) or not requested:
+            raise _RpcError(INVALID_PARAMS, "initialize 缺少 protocolVersion")
         # MCP 版本协商：客户端版本受支持则采用之，否则回应本服务端的基线版本
         negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
+        self._initialize_seen = True
         return {
             "protocolVersion": negotiated,
             "capabilities": {"tools": {"listChanged": False}},

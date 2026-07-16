@@ -19,6 +19,7 @@ class McpToolServiceTest(unittest.TestCase):
         self.assertIn("diagnostics.network_ports", names)
         for tool in tools:
             self.assertIn("inputSchema", tool)
+            self.assertIn("outputSchema", tool)
             self.assertIn("annotations", tool)
 
     def test_calls_diagnostic_tool(self):
@@ -70,6 +71,21 @@ class McpToolServiceTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error_code"], "TOOL_NOT_FOUND")
+
+    def test_rejects_undeclared_argument(self):
+        result = McpToolService().call_tool("system.info", {"unexpected": True})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "ARG_SCHEMA_VALIDATION")
+
+    def test_rejects_wrong_argument_type(self):
+        result = McpToolService().call_tool("process.list", {"limit": "ten"})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "ARG_SCHEMA_VALIDATION")
+
+    def test_rejects_missing_required_argument(self):
+        result = McpToolService().call_tool("service.status", {})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "ARG_SCHEMA_VALIDATION")
 
     def test_tool_call_is_written_to_mcp_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
