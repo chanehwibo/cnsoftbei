@@ -37,7 +37,12 @@ def load_simple_yaml(path: Path | str) -> dict[str, Any]:
 
 
 def load_app_config() -> dict[str, Any]:
-    config = {"audit_log": "data/audit.log", "web_host": "127.0.0.1", "web_port": 8765}
+    config = {
+        "audit_log": "data/audit.log",
+        "web_host": "127.0.0.1",
+        "web_port": 8765,
+        "require_auth": False,
+    }
     config.update(load_simple_yaml(CONFIG_DIR / "app.yaml"))
     config["web_port"] = int(config.get("web_port", 8765))
     return config

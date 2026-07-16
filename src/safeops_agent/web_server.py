@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import secrets
 import threading
 import time
 from http import HTTPStatus
@@ -62,6 +63,35 @@ RATE_LIMIT_WINDOW: int = 60
 MAX_BODY_SIZE: int = 65536
 ACCESS_LOG: bool = os.environ.get("SAFEOPS_ACCESS_LOG", "0") == "1"
 CORS_ORIGIN: str = os.environ.get("SAFEOPS_CORS_ORIGIN", "")
+AUTH_SESSION_TTL: int = 8 * 60 * 60
+
+
+class _WebSessionAuth:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sessions: dict[str, float] = {}
+
+    def login(self, token: str) -> str | None:
+        if not API_TOKEN or not hmac.compare_digest(token, API_TOKEN):
+            return None
+        session = secrets.token_urlsafe(32)
+        with self._lock:
+            self._sessions[session] = time.time() + AUTH_SESSION_TTL
+        return session
+
+    def valid(self, session: str) -> bool:
+        if not session:
+            return False
+        now = time.time()
+        with self._lock:
+            expires = self._sessions.get(session, 0)
+            if expires <= now:
+                self._sessions.pop(session, None)
+                return False
+            return True
+
+
+_session_auth = _WebSessionAuth()
 
 
 class _RateLimiter:
@@ -128,6 +158,11 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-XSS-Protection", "1; mode=block")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; connect-src 'self'; object-src 'none'; "
+            "base-uri 'none'; frame-ancestors 'none'",
+        )
         if CORS_ORIGIN:
             self.send_header("Access-Control-Allow-Origin", CORS_ORIGIN)
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -139,19 +174,21 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def _check_auth(self, allow_query_token: bool = False) -> bool:
+    def _check_auth(self) -> bool:
         if not API_TOKEN:
             return True
         auth = self.headers.get("Authorization", "")
         expected = f"Bearer {API_TOKEN}"
         if hmac.compare_digest(auth, expected):
             return True
-        if allow_query_token:
-            parsed = urlparse(self.path)
-            params = parse_qs(parsed.query)
-            token = params.get("token", [""])[0]
-            if token and hmac.compare_digest(token, API_TOKEN):
-                return True
+        cookie_header = self.headers.get("Cookie", "")
+        cookies = {}
+        for item in cookie_header.split(";"):
+            if "=" in item:
+                key, value = item.strip().split("=", 1)
+                cookies[key] = value
+        if _session_auth.valid(cookies.get("SafeOps-Session", "")):
+            return True
         self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
         return False
 
@@ -167,11 +204,14 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._json({"ok": True, "service": "safeops-web"})
             return
+        if path == "/api/auth/status":
+            self._json({"ok": True, "required": bool(API_TOKEN)})
+            return
         if not path.startswith("/api/"):
             self._serve_static(path)
             return
         if path == "/api/events":
-            if not self._check_auth(allow_query_token=True) or not self._check_rate_limit():
+            if not self._check_auth() or not self._check_rate_limit():
                 return
             self._serve_sse()
             return
@@ -209,9 +249,14 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
         self._json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        if path == "/api/auth":
+            if not self._check_rate_limit():
+                return
+            self._serve_login()
+            return
         if not self._check_auth() or not self._check_rate_limit():
             return
-        path = urlparse(self.path).path
         if path != "/api/agent":
             self._json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
             return
@@ -231,6 +276,9 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             payload = json.loads(body.decode("utf-8") or "{}")
         except (ValueError, UnicodeDecodeError):
             self._json({"ok": False, "error": "invalid json"}, HTTPStatus.BAD_REQUEST)
+            return
+        if not isinstance(payload, dict):
+            self._json({"ok": False, "error": "json body must be an object"}, HTTPStatus.BAD_REQUEST)
             return
 
         request = str(payload.get("request", "")).strip()
@@ -262,6 +310,44 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
             },
             HTTPStatus.OK if response.ok else HTTPStatus.ACCEPTED,
         )
+
+    def _serve_login(self) -> None:
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except (ValueError, TypeError):
+            self._json({"ok": False, "error": "invalid content-length"}, HTTPStatus.BAD_REQUEST)
+            return
+        if content_length < 0 or content_length > MAX_BODY_SIZE:
+            self._json({"ok": False, "error": "invalid request body size"}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            payload = json.loads(self.rfile.read(content_length).decode("utf-8") or "{}")
+        except (ValueError, UnicodeDecodeError):
+            self._json({"ok": False, "error": "invalid json"}, HTTPStatus.BAD_REQUEST)
+            return
+        if not isinstance(payload, dict):
+            self._json({"ok": False, "error": "json body must be an object"}, HTTPStatus.BAD_REQUEST)
+            return
+        if not API_TOKEN:
+            self._json({"ok": True, "required": False})
+            return
+        session = _session_auth.login(str(payload.get("token", "")))
+        if session is None:
+            self._json({"ok": False, "error": "invalid token"}, HTTPStatus.UNAUTHORIZED)
+            return
+        cookie = (
+            f"SafeOps-Session={session}; HttpOnly; SameSite=Strict; "
+            f"Path=/; Max-Age={AUTH_SESSION_TTL}"
+        )
+        if os.environ.get("SAFEOPS_HTTPS", "") == "1":
+            cookie += "; Secure"
+        data = json.dumps({"ok": True, "required": True}, ensure_ascii=False).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def log_message(self, format: str, *args) -> None:
         if ACCESS_LOG:
@@ -354,6 +440,8 @@ class SafeOpsWebHandler(BaseHTTPRequestHandler):
 def main() -> int:
     host = str(APP_CONFIG["web_host"])
     port = int(APP_CONFIG["web_port"])
+    if (bool(APP_CONFIG.get("require_auth")) or host not in {"127.0.0.1", "::1", "localhost"}) and not API_TOKEN:
+        raise RuntimeError("SAFEOPS_TOKEN is required when Web authentication is enabled or host is not loopback")
     server = ThreadingHTTPServer((host, port), SafeOpsWebHandler)
     print(f"SafeOps Web running at http://{host}:{port}", flush=True)
     print(f"LLM 意图理解：{get_provider().describe()}", flush=True)

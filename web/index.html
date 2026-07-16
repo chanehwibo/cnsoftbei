@@ -36,6 +36,11 @@
           </div>
           <button id="refreshAudit" class="secondary" type="button">刷新审计</button>
           <a id="exportAudit" href="/api/audit/export" class="secondary">导出报告</a>
+          <form id="authForm" class="auth-form" hidden>
+            <input id="authToken" type="password" autocomplete="current-password" placeholder="输入访问令牌" required>
+            <button type="submit" class="secondary">登录</button>
+            <span id="authState"></span>
+          </form>
         </section>
 
         <section class="status-grid" aria-label="状态概览">

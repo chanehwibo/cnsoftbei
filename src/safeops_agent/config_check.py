@@ -73,6 +73,11 @@ def _check_app(app: dict[str, Any], errors: list[str]) -> None:
     web_port = app.get("web_port")
     if not isinstance(web_port, int) or isinstance(web_port, bool) or not (1 <= web_port <= 65535):
         errors.append("app.yaml: web_port 必须是 1-65535 的整数")
+    require_auth = app.get("require_auth", False)
+    if not isinstance(require_auth, bool):
+        errors.append("app.yaml: require_auth 必须是 true/false")
+    if isinstance(web_host, str) and web_host not in {"127.0.0.1", "::1", "localhost"} and require_auth is not True:
+        errors.append("app.yaml: 非本机回环地址必须设置 require_auth: true")
 
 
 def _check_policy(policy: dict[str, Any], errors: list[str], warnings: list[str]) -> None:

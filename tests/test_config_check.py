@@ -56,6 +56,19 @@ class ConfigCheckTest(unittest.TestCase):
             self.assertFalse(report["ok"])
             self.assertTrue(any("web_port" in message for message in report["errors"]))
 
+    def test_remote_web_host_requires_authentication(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_valid_configs(Path(temp_dir))
+            write_config(
+                Path(temp_dir),
+                "app.yaml",
+                "audit_log: data/audit.log\nweb_host: 0.0.0.0\nweb_port: 8765\nrequire_auth: false\n",
+            )
+            report = validate_configs(temp_dir)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("非本机回环地址" in message for message in report["errors"]))
+
     def test_empty_destructive_keywords_is_error(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_valid_configs(Path(temp_dir))

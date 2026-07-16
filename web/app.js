@@ -10,6 +10,9 @@ const lastRiskScore = document.querySelector("#lastRiskScore");
 const lastDecision = document.querySelector("#lastDecision");
 const confirmState = document.querySelector("#confirmState");
 const toolCount = document.querySelector("#toolCount");
+const authForm = document.querySelector("#authForm");
+const authToken = document.querySelector("#authToken");
+const authState = document.querySelector("#authState");
 
 // 会话 ID：同一浏览器标签页内保持稳定，服务端据此隔离对话上下文并绑定确认令牌
 const sessionId = (() => {
@@ -230,7 +233,7 @@ function addMessage(role, text, detail = {}) {
 }
 
 async function requestJson(url, options) {
-  const response = await fetch(url, options);
+  const response = await fetch(url, {...(options || {}), credentials: "same-origin"});
   const payload = await response.json();
   if (!response.ok && response.status !== 202) {
     throw new Error(payload.error || `HTTP ${response.status}`);
@@ -399,12 +402,7 @@ auditTool.addEventListener("input", () => {
 });
 
 function connectSSE() {
-  let url = "/api/events";
-  const meta = document.querySelector('meta[name="safeops-token"]');
-  if (meta && meta.content) {
-    url += "?token=" + encodeURIComponent(meta.content);
-  }
-  const source = new EventSource(url);
+  const source = new EventSource("/api/events", {withCredentials: true});
   source.onmessage = function () {
     loadAudit();
   };
@@ -414,8 +412,40 @@ function connectSSE() {
   };
 }
 
+async function loadAuthStatus() {
+  const status = await requestJson("/api/auth/status");
+  authForm.hidden = !status.required;
+  authState.textContent = status.required ? "需要认证" : "本机模式";
+  return status.required;
+}
+
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authState.textContent = "认证中…";
+  try {
+    await requestJson("/api/auth", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token: authToken.value}),
+    });
+    authToken.value = "";
+    authState.textContent = "已认证";
+    await Promise.all([loadTools(), loadAudit()]);
+    connectSSE();
+  } catch (error) {
+    authState.textContent = "认证失败：" + error.message;
+  }
+});
+
 loadHealth();
-loadTools();
-loadAudit();
-connectSSE();
+loadAuthStatus().then((required) => {
+  if (!required) {
+    loadTools();
+    loadAudit();
+    connectSSE();
+  }
+}).catch(() => {
+  authForm.hidden = false;
+  authState.textContent = "认证状态检查失败";
+});
 addMessage("agent", "工作台已就绪");
