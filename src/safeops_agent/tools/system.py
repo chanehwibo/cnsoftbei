@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from safeops_agent.config import load_tools_config
+
 from .models import ToolResult
 
 
@@ -129,18 +131,34 @@ def _service_lifecycle(args: dict[str, Any], action: str) -> ToolResult:
     if not _safe_service_name(service):
         return ToolResult(ok=False, summary="服务名不合法", error="service name contains unsupported characters")
     rollback = {"tool": f"service.{inverse}", "args": {"service": service}}
+    guard_error = _service_change_guard(service)
+    if guard_error:
+        return ToolResult(
+            ok=False,
+            summary=f"服务 {service} 变更已拒绝",
+            data={"service": service, "action": action, "rollback": rollback},
+            error=guard_error,
+        )
     if platform.system().lower() == "windows":
         return ToolResult(
             ok=True,
             summary=f"当前为 Windows 开发环境，将在麒麟/Linux 环境使用 systemctl {action} {service}",
             data={"service": service, "action": action, "rollback": rollback},
         )
+    _, pre_status = _run_command(["systemctl", "is-active", service], timeout=8)
     ok, output = _run_command(["systemctl", action, service], timeout=15)
+    _, post_status = _run_command(["systemctl", "is-active", service], timeout=8)
     return ToolResult(
         ok=ok,
         summary=f"服务 {service} 已{verb}" if ok else f"服务 {service} {verb}失败",
-        data={"service": service, "action": action, "output": output, "rollback": rollback} if ok
-        else {"service": service, "action": action},
+        data={
+            "service": service,
+            "action": action,
+            "output": output,
+            "pre_status": pre_status,
+            "post_status": post_status,
+            "rollback": rollback,
+        },
         error=None if ok else output,
     )
 
@@ -368,6 +386,33 @@ def _safe_service_name(value: str) -> bool:
 def _safe_package_name(value: str) -> bool:
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+_.:-")
     return bool(value) and all(char in allowed for char in value)
+
+
+def _service_change_guard(service: str) -> str | None:
+    config = load_tools_config()
+    allowlist = {
+        str(item).strip().lower()
+        for item in config.get("service_allowlist", [])
+        if str(item).strip()
+    }
+    protected = {
+        str(item).strip().lower()
+        for item in config.get("protected_services", [])
+        if str(item).strip()
+    }
+    normalized = service.lower()
+    if normalized in protected:
+        return "protected service cannot be changed"
+    if allowlist and normalized not in allowlist:
+        return "service is not in the configured change allowlist"
+    if (
+        platform.system().lower() != "windows"
+        and hasattr(os, "geteuid")
+        and os.geteuid() == 0
+        and os.environ.get("SAFEOPS_ALLOW_ROOT_SERVICE_ACTIONS", "") != "1"
+    ):
+        return "refusing to run service changes as root; use a dedicated least-privilege account"
+    return None
 
 
 def _bounded_int(value: Any, minimum: int, maximum: int) -> int:

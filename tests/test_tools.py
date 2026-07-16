@@ -112,6 +112,16 @@ class SystemToolsTest(unittest.TestCase):
         result = restart_service({"service": "nginx; rm -rf /"})
         self.assertFalse(result.ok)
 
+    def test_restart_service_rejects_protected_service(self):
+        result = restart_service({"service": "auditd"})
+        self.assertFalse(result.ok)
+        self.assertIn("protected service", result.error)
+
+    def test_restart_service_rejects_service_outside_allowlist(self):
+        result = restart_service({"service": "unknown-daemon"})
+        self.assertFalse(result.ok)
+        self.assertIn("allowlist", result.error)
+
     def test_cron_jobs_ok(self):
         result = list_cron_jobs({})
         self.assertTrue(result.ok)

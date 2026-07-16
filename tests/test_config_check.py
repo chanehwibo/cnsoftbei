@@ -5,6 +5,8 @@ from pathlib import Path
 from safeops_agent.config import CONFIG_DIR
 from safeops_agent.config_check import validate_configs
 
+SERVICE_GUARDS = "service_allowlist:\n  - nginx\nprotected_services:\n  - auditd\n"
+
 
 def write_config(directory: Path, name: str, content: str) -> None:
     (directory / name).write_text(content, encoding="utf-8")
@@ -13,7 +15,11 @@ def write_config(directory: Path, name: str, content: str) -> None:
 def write_valid_configs(directory: Path) -> None:
     write_config(directory, "app.yaml", "audit_log: data/audit.log\nweb_host: 127.0.0.1\nweb_port: 8765\n")
     write_config(directory, "policy.yaml", "destructive_keywords:\n  - rm -rf\nsensitive_paths:\n  - /etc\n")
-    write_config(directory, "tools.yaml", "disabled_tools:\ntool_defaults:\n  process_limit: 10\n")
+    write_config(
+        directory,
+        "tools.yaml",
+        "disabled_tools:\ntool_defaults:\n  process_limit: 10\n" + SERVICE_GUARDS,
+    )
     write_config(
         directory,
         "llm.yaml",
@@ -61,7 +67,7 @@ class ConfigCheckTest(unittest.TestCase):
     def test_unknown_disabled_tool_is_warning(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_valid_configs(Path(temp_dir))
-            write_config(Path(temp_dir), "tools.yaml", "disabled_tools:\n  - no.such_tool\n")
+            write_config(Path(temp_dir), "tools.yaml", "disabled_tools:\n  - no.such_tool\n" + SERVICE_GUARDS)
             report = validate_configs(temp_dir)
             self.assertTrue(report["ok"], msg="未知工具名应是 warning 而非 error")
             self.assertTrue(any("no.such_tool" in message for message in report["warnings"]))
@@ -69,7 +75,7 @@ class ConfigCheckTest(unittest.TestCase):
     def test_known_disabled_tool_no_warning(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_valid_configs(Path(temp_dir))
-            write_config(Path(temp_dir), "tools.yaml", "disabled_tools:\n  - service.restart\n")
+            write_config(Path(temp_dir), "tools.yaml", "disabled_tools:\n  - service.restart\n" + SERVICE_GUARDS)
             report = validate_configs(temp_dir)
             self.assertTrue(report["ok"])
             self.assertFalse(any("service.restart" in message for message in report["warnings"]))
@@ -106,10 +112,27 @@ class ConfigCheckTest(unittest.TestCase):
     def test_negative_tool_default_is_error(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_valid_configs(Path(temp_dir))
-            write_config(Path(temp_dir), "tools.yaml", "disabled_tools:\ntool_defaults:\n  process_limit: -1\n")
+            write_config(
+                Path(temp_dir),
+                "tools.yaml",
+                "disabled_tools:\ntool_defaults:\n  process_limit: -1\n" + SERVICE_GUARDS,
+            )
             report = validate_configs(temp_dir)
             self.assertFalse(report["ok"])
             self.assertTrue(any("process_limit" in message for message in report["errors"]))
+
+    def test_service_allowlist_and_protected_services_cannot_overlap(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_valid_configs(Path(temp_dir))
+            write_config(
+                Path(temp_dir),
+                "tools.yaml",
+                "disabled_tools:\nservice_allowlist:\n  - nginx\nprotected_services:\n  - nginx\n",
+            )
+            report = validate_configs(temp_dir)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("同时出现在允许和保护列表" in item for item in report["errors"]))
 
 
 if __name__ == "__main__":

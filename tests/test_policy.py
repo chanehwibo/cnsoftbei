@@ -34,6 +34,21 @@ class PolicyEngineTest(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.error_code, "ARG_COMMAND_INJECTION")
 
+    def test_rejects_protected_service_change(self):
+        tool = build_registry()["service.stop"]
+        decision = PolicyEngine().evaluate_tool(tool, {"service": "auditd"}, confirmed=True)
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.risk, RiskLevel.HIGH)
+        self.assertEqual(decision.error_code, "ARG_PROTECTED_SERVICE")
+
+    def test_rejects_service_outside_allowlist(self):
+        tool = build_registry()["service.restart"]
+        decision = PolicyEngine().evaluate_tool(tool, {"service": "unknown-daemon"}, confirmed=True)
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.error_code, "ARG_SERVICE_NOT_ALLOWLISTED")
+
     def test_rejects_sensitive_path_destructive_intent(self):
         decision = PolicyEngine().evaluate_intent("覆盖 /etc/passwd")
 

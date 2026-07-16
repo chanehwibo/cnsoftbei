@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from safeops_agent.config import load_policy_config
+from safeops_agent.config import load_policy_config, load_tools_config
 from safeops_agent.tools.models import RiskLevel, ToolSpec
 
 
@@ -70,6 +70,17 @@ class PolicyEngine:
         configured_paths = tuple(str(item).lower() for item in config.get("sensitive_paths", []))
         self.active_destructive_keywords = configured_keywords or self.destructive_keywords
         self.active_sensitive_paths = configured_paths or self.sensitive_paths
+        tools_config = load_tools_config()
+        self.service_allowlist = {
+            str(item).strip().lower()
+            for item in tools_config.get("service_allowlist", [])
+            if str(item).strip()
+        }
+        self.protected_services = {
+            str(item).strip().lower()
+            for item in tools_config.get("protected_services", [])
+            if str(item).strip()
+        }
 
     def evaluate_intent(self, text: str) -> PolicyDecision | None:
         normalized = text.replace(" ", "").lower()
@@ -174,6 +185,22 @@ class PolicyEngine:
                     reason="服务名包含非法字符",
                     error_code="ARG_SERVICE_INVALID",
                 )
+            if tool.name in {"service.restart", "service.start", "service.stop"}:
+                normalized_service = service.lower()
+                if normalized_service in self.protected_services:
+                    return PolicyDecision(
+                        allowed=False,
+                        risk=RiskLevel.HIGH,
+                        reason=f"受保护系统服务禁止变更：{service}",
+                        error_code="ARG_PROTECTED_SERVICE",
+                    )
+                if self.service_allowlist and normalized_service not in self.service_allowlist:
+                    return PolicyDecision(
+                        allowed=False,
+                        risk=RiskLevel.HIGH,
+                        reason=f"服务不在允许变更白名单中：{service}",
+                        error_code="ARG_SERVICE_NOT_ALLOWLISTED",
+                    )
 
         if tool.name == "package.query":
             package = str(args.get("package", "")).strip()

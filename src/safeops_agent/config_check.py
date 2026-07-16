@@ -117,6 +117,18 @@ def _check_tools(tools: dict[str, Any], errors: list[str], warnings: list[str]) 
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             errors.append(f"tools.yaml: {key} 必须是正整数")
 
+    allowlist = tools.get("service_allowlist")
+    protected = tools.get("protected_services")
+    for key, value in (("service_allowlist", allowlist), ("protected_services", protected)):
+        if not isinstance(value, list) or not value:
+            errors.append(f"tools.yaml: {key} 必须是非空字符串列表")
+        elif not all(isinstance(item, str) and item.strip() for item in value):
+            errors.append(f"tools.yaml: {key} 含空项或非字符串项")
+    if isinstance(allowlist, list) and isinstance(protected, list):
+        overlap = {str(item).lower() for item in allowlist} & {str(item).lower() for item in protected}
+        if overlap:
+            errors.append(f"tools.yaml: 服务不能同时出现在允许和保护列表：{sorted(overlap)}")
+
 
 def _check_llm(llm: dict[str, Any], errors: list[str], warnings: list[str]) -> None:
     enabled = llm.get("llm_enabled")
