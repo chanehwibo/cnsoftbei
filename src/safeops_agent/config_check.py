@@ -41,18 +41,22 @@ def validate_configs(config_dir: Path | str = CONFIG_DIR) -> dict[str, Any]:
             checked.append(name)
 
     app = load_simple_yaml(config_dir / "app.yaml")
+    _check_yaml_parse("app.yaml", app, errors)
     if (config_dir / "app.yaml").exists():
         _check_app(app, errors)
 
     policy = load_simple_yaml(config_dir / "policy.yaml")
+    _check_yaml_parse("policy.yaml", policy, errors)
     if (config_dir / "policy.yaml").exists():
         _check_policy(policy, errors, warnings)
 
     tools = load_simple_yaml(config_dir / "tools.yaml")
+    _check_yaml_parse("tools.yaml", tools, errors)
     if (config_dir / "tools.yaml").exists():
         _check_tools(tools, errors, warnings)
 
     llm = load_simple_yaml(config_dir / "llm.yaml")
+    _check_yaml_parse("llm.yaml", llm, errors)
     local_path = config_dir / "llm.local.yaml"
     if local_path.exists():
         llm.update(load_simple_yaml(local_path))
@@ -115,8 +119,12 @@ def _check_tools(tools: dict[str, Any], errors: list[str], warnings: list[str]) 
         if isinstance(disabled, list) and known and known.issubset(set(disabled)):
             errors.append("tools.yaml: disabled_tools 禁用了全部工具，Agent 将无事可做")
 
+    defaults = tools.get("tool_defaults", {})
+    if not isinstance(defaults, dict):
+        errors.append("tools.yaml: tool_defaults 必须是对象")
+        defaults = {}
     for key in ("process_limit", "network_limit", "log_lines"):
-        value = tools.get(key)
+        value = defaults.get(key)
         if value is None:
             continue
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
@@ -133,6 +141,11 @@ def _check_tools(tools: dict[str, Any], errors: list[str], warnings: list[str]) 
         overlap = {str(item).lower() for item in allowlist} & {str(item).lower() for item in protected}
         if overlap:
             errors.append(f"tools.yaml: 服务不能同时出现在允许和保护列表：{sorted(overlap)}")
+
+
+def _check_yaml_parse(name: str, config: dict[str, Any], errors: list[str]) -> None:
+    if "__yaml_error__" in config:
+        errors.append(f"{name}: YAML 解析失败：{config['__yaml_error__']}")
 
 
 def _check_llm(llm: dict[str, Any], errors: list[str], warnings: list[str]) -> None:

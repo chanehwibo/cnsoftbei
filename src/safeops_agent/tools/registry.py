@@ -235,5 +235,5 @@ def all_tool_names() -> list[str]:
 
 
 def build_registry() -> dict[str, ToolSpec]:
-    disabled = set(load_tools_config().get("disabled_tools", []))
+    disabled = set(load_tools_config().get("disabled_tools") or [])
     return {tool.name: tool for tool in _build_specs() if tool.name not in disabled}

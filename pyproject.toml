@@ -3,7 +3,7 @@ name = "safeops-agent"
 version = "0.1.0"
 description = "A safety-first intelligent operations Agent for Kylin OS."
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["PyYAML>=6.0.2"]
 
 [project.scripts]
 safeops-agent = "safeops_agent.cli:main"

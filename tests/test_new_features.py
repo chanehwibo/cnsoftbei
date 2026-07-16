@@ -143,6 +143,16 @@ class OfflineOperationRoutingTest(unittest.TestCase):
         self.assertEqual(tool, "file.list_managed")
         self.assertEqual(args, {})
 
+    def test_agent_uses_configured_tool_defaults(self):
+        self.agent._tool_defaults = {
+            "process_limit": 7,
+            "network_limit": 11,
+            "log_lines": 23,
+        }
+        self.assertEqual(self.agent._select_tool("查看进程")[1]["limit"], 7)
+        self.assertEqual(self.agent._select_tool("查看监听端口")[1]["limit"], 11)
+        self.assertEqual(self.agent._select_tool("查看错误日志")[1]["lines"], 23)
+
 
 class AsciiKeywordBoundaryTest(unittest.TestCase):
     def test_rejects_standalone_reboot(self):

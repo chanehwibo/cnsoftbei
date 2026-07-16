@@ -58,7 +58,7 @@ def get_resource_usage(_: dict[str, Any]) -> ToolResult:
 
 
 def list_processes(args: dict[str, Any]) -> ToolResult:
-    limit = int(args.get("limit", 10))
+    limit = int(args.get("limit", _tool_default("process_limit", 10)))
     limit = max(1, min(limit, 50))
     if platform.system().lower() == "windows":
         ok, output = _run_command(["tasklist"])
@@ -74,7 +74,7 @@ def list_processes(args: dict[str, Any]) -> ToolResult:
 
 
 def inspect_recent_errors(args: dict[str, Any]) -> ToolResult:
-    lines = int(args.get("lines", 100))
+    lines = int(args.get("lines", _tool_default("log_lines", 100)))
     lines = max(10, min(lines, 500))
     if platform.system().lower() == "windows":
         return ToolResult(
@@ -172,7 +172,7 @@ def stop_service(args: dict[str, Any]) -> ToolResult:
 
 
 def list_network_connections(args: dict[str, Any]) -> ToolResult:
-    limit = _bounded_int(args.get("limit", 50), 1, 200)
+    limit = _bounded_int(args.get("limit", _tool_default("network_limit", 50)), 1, 200)
     if platform.system().lower() == "windows":
         ok, output = _run_command(["netstat", "-ano"], timeout=8)
     else:
@@ -186,7 +186,7 @@ def list_network_connections(args: dict[str, Any]) -> ToolResult:
 
 
 def list_listening_ports(args: dict[str, Any]) -> ToolResult:
-    limit = _bounded_int(args.get("limit", 50), 1, 200)
+    limit = _bounded_int(args.get("limit", _tool_default("network_limit", 50)), 1, 200)
     if platform.system().lower() == "windows":
         ok, output = _run_command(["netstat", "-ano"], timeout=8)
         if ok:
@@ -421,3 +421,13 @@ def _bounded_int(value: Any, minimum: int, maximum: int) -> int:
     except (TypeError, ValueError):
         parsed = minimum
     return max(minimum, min(parsed, maximum))
+
+
+def _tool_default(key: str, fallback: int) -> int:
+    defaults = load_tools_config().get("tool_defaults", {})
+    if not isinstance(defaults, dict):
+        return fallback
+    try:
+        return int(defaults.get(key, fallback))
+    except (TypeError, ValueError):
+        return fallback

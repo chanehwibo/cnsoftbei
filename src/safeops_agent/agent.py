@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from safeops_agent.audit.logger import AuditLogger
-from safeops_agent.config import load_llm_config
+from safeops_agent.config import load_llm_config, load_tools_config
 from safeops_agent.llm import LLMProvider, RuleBasedProvider, get_provider
 from safeops_agent.security.pending import PendingActionStore
 from safeops_agent.security.policy import PolicyDecision, PolicyEngine
@@ -68,6 +68,7 @@ class SafeOpsAgent:
         self.session_id = session_id
         self.pending = pending_store or PendingActionStore()
         self._rule_fast_path = bool(load_llm_config().get("llm_rule_fast_path", False))
+        self._tool_defaults = dict(load_tools_config().get("tool_defaults", {}))
         self._last_tool: str | None = None
         self._last_args: dict[str, Any] = {}
         self._last_service: str = ""
@@ -422,9 +423,9 @@ class SafeOpsAgent:
         if any(keyword in compact for keyword in ("cpu", "内存", "资源", "负载", "内存占用", "cpu占用", "使用率", "利用率", "load", "磁盘用量", "磁盘使用")):
             return "system.resources", {}
         if any(keyword in compact for keyword in ("进程", "process", "任务管理器", "跑了什么", "运行了什么")):
-            return "process.list", {"limit": 10}
+            return "process.list", {"limit": self._tool_default("process_limit", 10)}
         if any(keyword in compact for keyword in ("错误日志", "系统日志", "journal", "日志", "报错", "error")):
-            return "logs.recent_errors", {"lines": 100}
+            return "logs.recent_errors", {"lines": self._tool_default("log_lines", 100)}
         if "受管文件" in compact and any(keyword in compact for keyword in ("列表", "查看", "有哪些")):
             return "file.list_managed", {}
         if any(keyword in compact for keyword in ("回滚", "恢复")) and any(
@@ -449,9 +450,9 @@ class SafeOpsAgent:
             service = self._extract_service_name(text)
             return "service.status", {"service": service}
         if any(keyword in compact for keyword in ("网络连接", "连接列表", "netstat", "tcp连接", "udp连接", "网络状态")):
-            return "network.connections", {"limit": 50}
+            return "network.connections", {"limit": self._tool_default("network_limit", 50)}
         if any(keyword in compact for keyword in ("监听端口", "端口监听", "开放端口", "端口列表", "端口", "port", "哪些端口")):
-            return "network.listening_ports", {"limit": 50}
+            return "network.listening_ports", {"limit": self._tool_default("network_limit", 50)}
         if any(keyword in compact for keyword in ("用户列表", "本地用户", "系统用户", "有哪些用户", "用户")):
             return "user.list", {}
         if any(keyword in compact for keyword in ("定时任务", "计划任务", "cron", "crontab", "定时")):
@@ -470,16 +471,22 @@ class SafeOpsAgent:
 
     def _select_diagnostic_tool(self, text: str, compact: str) -> tuple[str, dict[str, Any]]:
         if any(keyword in compact for keyword in ("端口", "监听")):
-            return "diagnostics.network_ports", {"limit": 50}
+            return "diagnostics.network_ports", {"limit": self._tool_default("network_limit", 50)}
         if "服务" in compact:
             return "diagnostics.service", {"service": self._extract_service_name(text)}
         if any(keyword in compact for keyword in ("日志", "journal", "错误")):
-            return "diagnostics.logs", {"lines": 100}
+            return "diagnostics.logs", {"lines": self._tool_default("log_lines", 100)}
         if any(keyword in compact for keyword in ("磁盘", "空间", "挂载")):
             return "diagnostics.disk", {}
         if any(keyword in compact for keyword in ("cpu", "内存", "资源", "负载")):
             return "diagnostics.resources", {}
         return "diagnostics.overview", {}
+
+    def _tool_default(self, key: str, fallback: int) -> int:
+        try:
+            return int(self._tool_defaults.get(key, fallback))
+        except (TypeError, ValueError):
+            return fallback
 
     def _extract_service_name(self, text: str) -> str:
         lower = text.lower()

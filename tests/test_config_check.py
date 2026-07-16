@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from safeops_agent.config import CONFIG_DIR
+from safeops_agent.config import load_simple_yaml
 from safeops_agent.config_check import validate_configs
 
 SERVICE_GUARDS = "service_allowlist:\n  - nginx\nprotected_services:\n  - auditd\n"
@@ -29,6 +30,13 @@ def write_valid_configs(directory: Path) -> None:
 
 
 class ConfigCheckTest(unittest.TestCase):
+    def test_standard_yaml_preserves_nested_tool_defaults(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "tools.yaml"
+            path.write_text("tool_defaults:\n  process_limit: 7\n", encoding="utf-8")
+            parsed = load_simple_yaml(path)
+            self.assertEqual(parsed["tool_defaults"]["process_limit"], 7)
+
     def test_repo_config_passes_validation(self):
         report = validate_configs(CONFIG_DIR)
         self.assertTrue(report["ok"], msg=f"仓库配置应校验通过：{report['errors']}")

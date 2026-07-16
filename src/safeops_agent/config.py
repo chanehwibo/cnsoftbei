@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -12,28 +14,15 @@ def load_simple_yaml(path: Path | str) -> dict[str, Any]:
     target = Path(path)
     if not target.exists():
         return {}
-    result: dict[str, Any] = {}
-    current_key: str | None = None
-    for raw_line in target.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw_line.rstrip()
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith("- ") and current_key:
-            result.setdefault(current_key, []).append(_parse_scalar(stripped[2:].strip()))
-            continue
-        if ":" in stripped:
-            key, value = stripped.split(":", 1)
-            key = key.strip()
-            value = value.strip()
-            current_key = key
-            if not value:
-                result[key] = []
-            elif value == "[]":
-                result[key] = []
-            else:
-                result[key] = _parse_scalar(value)
-    return result
+    try:
+        loaded = yaml.safe_load(target.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return {"__yaml_error__": str(exc)}
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        return {"__yaml_error__": "YAML 根节点必须为对象"}
+    return loaded
 
 
 def load_app_config() -> dict[str, Any]:
@@ -69,17 +58,3 @@ def resolve_project_path(value: str | Path) -> Path:
     if path.is_absolute():
         return path
     return PROJECT_ROOT / path
-
-
-def _parse_scalar(value: str) -> Any:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-        return value[1:-1]
-    lowered = value.lower()
-    if lowered == "true":
-        return True
-    if lowered == "false":
-        return False
-    try:
-        return int(value)
-    except ValueError:
-        return value
