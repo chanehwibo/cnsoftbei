@@ -1,6 +1,6 @@
 llm_enabled: true
 llm_provider: deepseek
-llm_model: deepseek-v4-pro
+llm_model: deepseek-chat
 llm_api_key: ""
 llm_base_url: https://api.deepseek.com/v1
 # 超时过长会在 API 抖动时卡住演示界面；超时/失败会自动回退规则匹配
