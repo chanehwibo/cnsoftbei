@@ -74,6 +74,22 @@ class ConfirmFlowTest(unittest.TestCase):
         hijacked = agent_b.confirm(resp.pending_action_id)
         self.assertFalse(hijacked.ok)
         self.assertIn("会话不匹配", hijacked.message)
+        owner_confirmed = agent_a.confirm(resp.pending_action_id)
+        self.assertTrue(owner_confirmed.ok)
+
+    def test_multiple_store_instances_do_not_lose_actions(self):
+        first = PendingActionStore(Path(self.tmp.name) / "shared.json")
+        second = PendingActionStore(Path(self.tmp.name) / "shared.json")
+        action_a = first.create("service.restart", {"service": "nginx"}, "a", session="one")
+        action_b = second.create("service.restart", {"service": "nginx"}, "b", session="two")
+
+        record_a, error_a = second.consume(action_a, session="one")
+        record_b, error_b = first.consume(action_b, session="two")
+
+        self.assertIsNone(error_a)
+        self.assertIsNone(error_b)
+        self.assertEqual(record_a["request"], "a")
+        self.assertEqual(record_b["request"], "b")
 
     def test_unknown_token_rejected(self):
         agent = self.make_agent()

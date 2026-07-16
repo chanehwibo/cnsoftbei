@@ -55,6 +55,22 @@ class ManagedFileRollbackTest(unittest.TestCase):
         res = operations.apply_managed_file({"name": "big.conf", "content": "x" * (operations.MAX_CONTENT_LENGTH + 1)})
         self.assertFalse(res.ok)
 
+    def test_rejects_oversized_multibyte_content_by_encoded_size(self):
+        res = operations.apply_managed_file(
+            {"name": "big-utf8.conf", "content": "中" * (operations.MAX_CONTENT_LENGTH // 3 + 1)}
+        )
+        self.assertFalse(res.ok)
+
+    def test_snapshot_ids_remain_unique_when_clock_is_constant(self):
+        with mock.patch.object(operations.time, "time", return_value=1234.5):
+            first = operations.apply_managed_file({"name": "clock.conf", "content": "v=1"})
+            second = operations.apply_managed_file({"name": "clock.conf", "content": "v=2"})
+        self.assertTrue(first.ok)
+        self.assertTrue(second.ok)
+        self.assertNotEqual(first.data["snapshot_id"], second.data["snapshot_id"])
+        self.assertTrue((operations.SNAPSHOT_ROOT / first.data["snapshot_id"]).is_file())
+        self.assertTrue((operations.SNAPSHOT_ROOT / second.data["snapshot_id"]).is_file())
+
     def test_rollback_unknown_snapshot(self):
         res = operations.rollback_managed_file({"snapshot_id": "nope.123"})
         self.assertFalse(res.ok)
