@@ -8,12 +8,9 @@ venv/
 dist/
 build/
 *.egg-info/
-data/audit.log
-data/managed/
-data/snapshots/
+data/
 .env
 config/llm.local.yaml
-data/pending_actions.json
 
 # 含个人信息的报名表（走平台单独上传，不入开源仓库）
 初赛提交文档/

@@ -38,8 +38,7 @@ try {
 
   $forbiddenPatterns = @(
     ".git/",
-    "data/audit.log",
-    "data/pending_actions.json",
+    "data/",
     "__pycache__/",
     "dist/"
   )
