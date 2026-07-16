@@ -8,18 +8,15 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from safeops_agent.agent import SafeOpsAgent
 from safeops_agent.audit.logger import AuditLogger
-from safeops_agent.config import load_app_config, resolve_project_path
+from safeops_agent.config import WEB_ROOT, load_app_config, resolve_project_path
 from safeops_agent.llm import get_provider
 from safeops_agent.mcp_server import McpToolService
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-WEB_ROOT = PROJECT_ROOT / "web"
 APP_CONFIG = load_app_config()
 AUDIT_PATH = resolve_project_path(APP_CONFIG["audit_log"])
 

@@ -18,3 +18,11 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+safeops_agent = [
+  "resources/config/*.yaml",
+  "resources/web/*.html",
+  "resources/web/*.css",
+  "resources/web/*.js",
+]

@@ -1,0 +1,24 @@
+disabled_tools:
+tool_defaults:
+  process_limit: 10
+  network_limit: 50
+  log_lines: 100
+service_allowlist:
+  - nginx
+  - httpd
+  - apache2
+  - mysql
+  - mariadb
+  - postgresql
+  - redis
+  - redis-server
+  - docker
+  - containerd
+  - tomcat
+protected_services:
+  - auditd
+  - firewalld
+  - iptables
+  - nftables
+  - sshd
+  - systemd-logind
