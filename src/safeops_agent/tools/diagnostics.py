@@ -28,7 +28,13 @@ def diagnose_overview(_: dict[str, Any]) -> ToolResult:
         ],
         evidence={"resources": resources.data, "listening_ports": ports.data},
     )
-    return ToolResult(ok=True, summary="系统概览诊断完成", data={"diagnosis": diagnosis})
+    failures = [result for result in (resources, ports) if not result.ok]
+    return ToolResult(
+        ok=not failures,
+        summary="系统概览诊断完成" if not failures else "系统概览诊断采集失败",
+        data={"diagnosis": diagnosis},
+        error="；".join(result.error or result.summary for result in failures) or None,
+    )
 
 
 def diagnose_resources(_: dict[str, Any]) -> ToolResult:
@@ -55,7 +61,12 @@ def diagnose_resources(_: dict[str, Any]) -> ToolResult:
         recommended_actions=recommended_actions,
         evidence=result.data,
     )
-    return ToolResult(ok=True, summary="资源诊断完成", data={"diagnosis": diagnosis})
+    return ToolResult(
+        ok=result.ok,
+        summary="资源诊断完成" if result.ok else "资源诊断采集失败",
+        data={"diagnosis": diagnosis},
+        error=result.error if not result.ok else None,
+    )
 
 
 def diagnose_disk(_: dict[str, Any]) -> ToolResult:
@@ -75,7 +86,12 @@ def diagnose_disk(_: dict[str, Any]) -> ToolResult:
         ],
         evidence=partitions.data,
     )
-    return ToolResult(ok=True, summary="磁盘诊断完成", data={"diagnosis": diagnosis})
+    return ToolResult(
+        ok=partitions.ok,
+        summary="磁盘诊断完成" if partitions.ok else "磁盘诊断采集失败",
+        data={"diagnosis": diagnosis},
+        error=partitions.error if not partitions.ok else None,
+    )
 
 
 def diagnose_network_ports(args: dict[str, Any]) -> ToolResult:
@@ -95,7 +111,12 @@ def diagnose_network_ports(args: dict[str, Any]) -> ToolResult:
         ],
         evidence=ports.data,
     )
-    return ToolResult(ok=True, summary="端口诊断完成", data={"diagnosis": diagnosis})
+    return ToolResult(
+        ok=ports.ok,
+        summary="端口诊断完成" if ports.ok else "端口诊断采集失败",
+        data={"diagnosis": diagnosis},
+        error=ports.error if not ports.ok else None,
+    )
 
 
 def diagnose_service(args: dict[str, Any]) -> ToolResult:
@@ -121,7 +142,12 @@ def diagnose_service(args: dict[str, Any]) -> ToolResult:
             f"重启 {service} 服务" if service else "重启目标服务",
         ],
     )
-    return ToolResult(ok=True, summary="服务诊断完成", data={"diagnosis": diagnosis})
+    return ToolResult(
+        ok=status.ok,
+        summary="服务诊断完成" if status.ok else "服务诊断采集失败",
+        data={"diagnosis": diagnosis},
+        error=status.error if not status.ok else None,
+    )
 
 
 def diagnose_logs(args: dict[str, Any]) -> ToolResult:
@@ -141,7 +167,12 @@ def diagnose_logs(args: dict[str, Any]) -> ToolResult:
         ],
         evidence=logs.data if logs.data else {"error": logs.error, "summary": logs.summary},
     )
-    return ToolResult(ok=True, summary="日志诊断完成", data={"diagnosis": diagnosis})
+    return ToolResult(
+        ok=logs.ok,
+        summary="日志诊断完成" if logs.ok else "日志诊断采集失败",
+        data={"diagnosis": diagnosis},
+        error=logs.error if not logs.ok else None,
+    )
 
 
 def _base_diagnosis(

@@ -163,6 +163,7 @@ def _build_specs() -> list[ToolSpec]:
             risk=RiskLevel.LOW,
             handler=diagnose_service,
             parameters={"service": {"type": "string"}},
+            required=["service"],
             category="diagnostics",
         ),
         ToolSpec(

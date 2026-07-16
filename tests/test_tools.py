@@ -15,6 +15,7 @@ from safeops_agent.tools.system import (
     list_cron_jobs,
     inspect_recent_errors,
 )
+from safeops_agent.tools.diagnostics import diagnose_service
 
 
 class SystemToolsTest(unittest.TestCase):
@@ -129,6 +130,12 @@ class SystemToolsTest(unittest.TestCase):
     def test_recent_errors_ok(self):
         result = inspect_recent_errors({})
         self.assertTrue(result.ok)
+
+    def test_service_diagnosis_propagates_missing_target_failure(self):
+        result = diagnose_service({})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.summary, "服务诊断采集失败")
+        self.assertIn("service is required", result.error)
 
 
 if __name__ == "__main__":
