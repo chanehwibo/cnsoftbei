@@ -36,8 +36,18 @@ try {
     }
   }
 
-  $forbiddenPatterns = @(".git/", "data/audit.log", "__pycache__/", "dist/")
+  $forbiddenPatterns = @(
+    ".git/",
+    "data/audit.log",
+    "data/pending_actions.json",
+    "__pycache__/",
+    "dist/"
+  )
+  $forbiddenEntries = @("config/llm.local.yaml", ".env")
   foreach ($entry in $entries) {
+    if ($forbiddenEntries -contains $entry) {
+      throw "forbidden package entry: $entry"
+    }
     foreach ($pattern in $forbiddenPatterns) {
       if ($entry -like "*$pattern*") {
         throw "forbidden package entry: $entry"

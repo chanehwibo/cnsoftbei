@@ -25,6 +25,9 @@ function Test-ExcludedPackagePath($FullName) {
     $normalized -like "*/.git/*" -or
     $normalized -like "*/dist/*" -or
     $normalized -like "*/data/audit.log" -or
+    $normalized -like "*/data/pending_actions.json" -or
+    $normalized -like "*/config/llm.local.yaml" -or
+    $normalized -like "*/.env" -or
     $normalized -like "*/__pycache__/*" -or
     $normalized -like "*.pyc"
   )
