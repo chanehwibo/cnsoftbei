@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import platform
+import re
 import secrets
 import threading
 import time
@@ -21,6 +22,18 @@ class AuditLogger:
     MAX_BACKUPS: int = 5
     GENESIS_HASH: str = "0" * 64
     LOCK_TIMEOUT_SECONDS: float = 5.0
+    REDACTED: str = "[REDACTED]"
+    SENSITIVE_KEYS = {
+        "password",
+        "passwd",
+        "secret",
+        "api_key",
+        "authorization",
+        "credential",
+        "private_key",
+        "content",
+        "pending_action_id",
+    }
 
     def __init__(self, path: Path | str = "data/audit.log", source: str = "safeops-agent") -> None:
         self.path = Path(path)
@@ -34,13 +47,14 @@ class AuditLogger:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 self._rotate_if_needed()
                 previous_count = self._event_count(self.path)
+                sanitized_event = self._redact(event)
                 payload = {
                     "event_id": uuid.uuid4().hex,
                     "ts": datetime.now(timezone.utc).isoformat(),
                     "source": self.source,
                     "host": platform.node(),
                     "pid": os.getpid(),
-                    **event,
+                    **sanitized_event,
                 }
                 payload["prev_hash"] = self._last_entry_hash()
                 canonical = self._canonical(payload)
@@ -204,6 +218,29 @@ class AuditLogger:
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
+
+    @classmethod
+    def _redact(cls, value: Any, key: str | None = None) -> Any:
+        normalized_key = (key or "").lower()
+        if normalized_key in cls.SENSITIVE_KEYS:
+            return cls.REDACTED
+        if isinstance(value, dict):
+            return {str(item_key): cls._redact(item_value, str(item_key))
+                    for item_key, item_value in value.items()}
+        if isinstance(value, list):
+            return [cls._redact(item) for item in value]
+        if isinstance(value, tuple):
+            return [cls._redact(item) for item in value]
+        if not isinstance(value, str):
+            return value
+        text = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", cls.REDACTED, value)
+        text = re.sub(r"(?i)\bBearer\s+\S+", f"Bearer {cls.REDACTED}", text)
+        text = re.sub(
+            r"(?i)\b(password|passwd|api[_-]?key|token|secret)\s*([:=])\s*\S+",
+            lambda match: f"{match.group(1)}{match.group(2)}{cls.REDACTED}",
+            text,
+        )
+        return text
 
     def _key_path(self) -> Path:
         return self.path.with_name(f"{self.path.name}.key")

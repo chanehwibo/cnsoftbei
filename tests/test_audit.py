@@ -8,6 +8,25 @@ from safeops_agent.llm import RuleBasedProvider
 
 
 class AuditLoggerTest(unittest.TestCase):
+    def test_sensitive_values_are_redacted_before_persisting(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audit_path = Path(temp_dir) / "audit.log"
+            logger = AuditLogger(audit_path, source="test")
+            logger.record({
+                "request": "api_key=sk-1234567890abcdef",
+                "args": {"content": "password=hunter2", "password": "hunter2"},
+                "pending_action_id": "deadbeef",
+            })
+
+            event = logger.recent(1)[0]
+            raw = audit_path.read_text(encoding="utf-8")
+
+            self.assertNotIn("sk-1234567890abcdef", raw)
+            self.assertNotIn("hunter2", raw)
+            self.assertEqual(event["args"]["content"], AuditLogger.REDACTED)
+            self.assertEqual(event["args"]["password"], AuditLogger.REDACTED)
+            self.assertEqual(event["pending_action_id"], AuditLogger.REDACTED)
+
     def test_agent_writes_structured_audit_event(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             audit_path = Path(temp_dir) / "audit.log"

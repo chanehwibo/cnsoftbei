@@ -23,6 +23,24 @@ class ConfirmFlowTest(unittest.TestCase):
             pending_store=self.store,
         )
 
+    def test_pending_actions_are_encrypted_at_rest(self):
+        action_id = self.store.create(
+            "file.apply",
+            {"name": "app.conf", "content": "password=hunter2"},
+            "write secret config",
+            session="cli",
+        )
+        raw = self.store.path.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+
+        self.assertEqual(payload["version"], 1)
+        self.assertIn("ciphertext", payload)
+        self.assertNotIn("hunter2", raw)
+        self.assertNotIn("write secret config", raw)
+        record, error = self.store.consume(action_id, session="cli")
+        self.assertIsNone(error)
+        self.assertEqual(record["args"]["content"], "password=hunter2")
+
     def test_dry_run_issues_token(self):
         agent = self.make_agent()
         resp = agent.handle("重启 nginx 服务")

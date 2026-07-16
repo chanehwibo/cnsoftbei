@@ -14,7 +14,12 @@ tool + args，并绑定会话、限制有效期）。确认阶段凭 action_id �
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
+import os
+import secrets
 import threading
 import time
 import uuid
@@ -67,15 +72,98 @@ class PendingActionStore:
             data = json.loads(self.path.read_text(encoding="utf-8") or "{}")
         except (json.JSONDecodeError, OSError):
             return {}
+        if isinstance(data, dict) and data.get("version") == 1:
+            data = self._unseal(data)
         if not isinstance(data, dict):
             return {}
         now = time.time()
-        return {
-            key: value
-            for key, value in data.items()
-            if isinstance(value, dict) and now - float(value.get("created_at", 0)) <= self.ttl
-        }
+        active: dict[str, Any] = {}
+        for key, value in data.items():
+            if not isinstance(value, dict):
+                continue
+            try:
+                created_at = float(value.get("created_at", 0))
+            except (TypeError, ValueError):
+                continue
+            if now - created_at <= self.ttl:
+                active[key] = value
+        return active
 
     def _save(self, actions: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(actions, ensure_ascii=False, indent=2), encoding="utf-8")
+        sealed = self._seal(actions)
+        temporary = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(sealed, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(self.path)
+
+    def _key_path(self) -> Path:
+        return self.path.with_name(f"{self.path.name}.key")
+
+    def _load_key(self) -> bytes:
+        configured = os.environ.get("SAFEOPS_PENDING_KEY", "")
+        if configured:
+            return hashlib.sha256(configured.encode("utf-8")).digest()
+        path = self._key_path()
+        if path.is_file():
+            return path.read_bytes()
+        key = secrets.token_bytes(32)
+        temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temporary.write_bytes(key)
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        try:
+            temporary.replace(path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+        return path.read_bytes()
+
+    def _seal(self, actions: dict[str, Any]) -> dict[str, Any]:
+        plaintext = json.dumps(actions, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        nonce = secrets.token_bytes(16)
+        key = self._load_key()
+        ciphertext = self._xor_stream(plaintext, key, nonce)
+        signature = hmac.new(key, nonce + ciphertext, hashlib.sha256).hexdigest()
+        return {
+            "version": 1,
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+            "hmac": signature,
+        }
+
+    def _unseal(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            nonce = base64.b64decode(str(payload["nonce"]), validate=True)
+            ciphertext = base64.b64decode(str(payload["ciphertext"]), validate=True)
+            signature = str(payload["hmac"])
+        except (KeyError, ValueError, TypeError):
+            return {}
+        key = self._load_key()
+        expected = hmac.new(key, nonce + ciphertext, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return {}
+        try:
+            decoded = self._xor_stream(ciphertext, key, nonce).decode("utf-8")
+            actions = json.loads(decoded)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {}
+        return actions if isinstance(actions, dict) else {}
+
+    @staticmethod
+    def _xor_stream(data: bytes, key: bytes, nonce: bytes) -> bytes:
+        output = bytearray(len(data))
+        offset = 0
+        counter = 0
+        while offset < len(data):
+            block = hmac.new(
+                key,
+                nonce + counter.to_bytes(8, "big"),
+                hashlib.sha256,
+            ).digest()
+            take = min(len(block), len(data) - offset)
+            for index in range(take):
+                output[offset + index] = data[offset + index] ^ block[index]
+            offset += take
+            counter += 1
+        return bytes(output)
