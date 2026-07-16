@@ -54,7 +54,7 @@ OK
 | `test_pending_confirm.py` | 一次性、会话、过期、加密与并发 |
 | `test_audit.py`、`test_audit_chain.py` | 查询、脱敏、签名、锚点、轮转与旧链 |
 | `test_mcp_service.py`、`test_mcp_stdio.py` | MCP 工具、生命周期、Schema 和协议 |
-| `test_web_server.py` | 进程级 HTTP 认证与输入边界 |
+| `test_web_server.py` | HTTP Cookie/Bearer 认证、限流、会话过期/LRU、SSE、TLS 与输入边界 |
 | `test_config_check.py`、`test_packaging.py` | YAML、配置、资源同步和安装后备 |
 | `test_llm.py`、`test_reasoning_chain.py` | Provider、输出护栏和结构化决策轨迹 |
 

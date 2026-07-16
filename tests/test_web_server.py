@@ -2,6 +2,7 @@ import http.client
 import json
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -72,6 +73,41 @@ class WebAuthenticationTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertIn("default-src 'self'", headers["Content-Security-Policy"])
 
+    def test_bearer_token_authenticates_programmatic_client(self):
+        status, _, payload = self.request(
+            "GET",
+            "/api/tools",
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+
+    def test_rate_limit_returns_429_after_budget_is_exhausted(self):
+        web._limiter = web._RateLimiter(max_requests=1, window=60)
+        headers = {"Authorization": "Bearer test-token"}
+
+        first_status, _, _ = self.request("GET", "/api/tools", headers=headers)
+        second_status, _, payload = self.request("GET", "/api/tools", headers=headers)
+
+        self.assertEqual(first_status, 200)
+        self.assertEqual(second_status, 429)
+        self.assertEqual(payload["error"], "rate limit exceeded")
+
+    def test_authentication_session_expires_and_is_removed(self):
+        auth = web._WebSessionAuth()
+        with mock.patch.object(
+            web.time,
+            "time",
+            side_effect=[1000, 1001, 1000 + web.AUTH_SESSION_TTL + 1],
+        ):
+            session = auth.login("test-token")
+            self.assertIsNotNone(session)
+            self.assertTrue(auth.valid(session))
+            self.assertFalse(auth.valid(session))
+
+        self.assertNotIn(session, auth._sessions)
+
     def test_query_token_is_not_an_authentication_channel(self):
         status, _, _ = self.request("GET", "/api/tools?token=test-token")
         self.assertEqual(status, 401)
@@ -100,6 +136,41 @@ class WebAuthenticationTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("Secure", headers["Set-Cookie"])
         self.assertIn("max-age=31536000", headers["Strict-Transport-Security"])
+
+    def test_sse_endpoint_pushes_latest_audit_event(self):
+        connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        web._shutdown_event.clear()
+        try:
+            connection.request(
+                "GET",
+                "/api/events",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertTrue(response.getheader("Content-Type").startswith("text/event-stream"))
+
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                with web._sse._lock:
+                    if web._sse._events:
+                        break
+                time.sleep(0.01)
+            else:
+                self.fail("SSE subscriber was not registered")
+
+            event = {"event_type": "agent.tool_call", "tool": "system.info"}
+            with mock.patch.object(web._audit_logger, "recent", return_value=[event]):
+                web._sse.notify()
+                line = response.fp.readline().decode("utf-8")
+
+            self.assertTrue(line.startswith("data: "))
+            self.assertEqual(json.loads(line.removeprefix("data: ")), event)
+        finally:
+            web._shutdown_event.set()
+            web._sse.notify()
+            connection.close()
+            web._shutdown_event.clear()
 
 
 class WebTlsConfigurationTest(unittest.TestCase):
@@ -159,6 +230,36 @@ class WebStartupAuthenticationTest(unittest.TestCase):
         web._validate_startup_auth("127.0.0.1", config, token="")
         with self.assertRaisesRegex(RuntimeError, "loopback"):
             web._validate_startup_auth("0.0.0.0", config, token="")
+
+
+class WebAgentSessionLruTest(unittest.TestCase):
+    def test_oldest_agent_session_is_evicted_at_capacity(self):
+        old_max_sessions = web.MAX_SESSIONS
+        with web._sessions_guard:
+            old_sessions = dict(web._sessions)
+            web._sessions.clear()
+        web.MAX_SESSIONS = 2
+        agents = [object(), object(), object()]
+        try:
+            with (
+                mock.patch.object(web, "SafeOpsAgent", side_effect=agents) as factory,
+                mock.patch.object(web.time, "monotonic", side_effect=[1, 1, 2, 2, 3, 4, 4]),
+            ):
+                first, _ = web._get_session("first")
+                second, _ = web._get_session("second")
+                web._get_session("first")
+                third, _ = web._get_session("third")
+
+            self.assertIs(first, agents[0])
+            self.assertIs(second, agents[1])
+            self.assertIs(third, agents[2])
+            self.assertEqual(factory.call_count, 3)
+            self.assertEqual(set(web._sessions), {"first", "third"})
+        finally:
+            web.MAX_SESSIONS = old_max_sessions
+            with web._sessions_guard:
+                web._sessions.clear()
+                web._sessions.update(old_sessions)
 
 
 if __name__ == "__main__":
