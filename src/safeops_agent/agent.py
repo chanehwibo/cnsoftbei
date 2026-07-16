@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -70,6 +69,11 @@ class SafeOpsAgent:
         self.pending = pending_store or PendingActionStore()
         self._rule_fast_path = bool(load_llm_config().get("llm_rule_fast_path", False))
         self._tool_defaults = dict(load_tools_config().get("tool_defaults", {}))
+        self._rule_provider = (
+            self.llm if isinstance(self.llm, RuleBasedProvider)
+            else RuleBasedProvider(tool_defaults=self._tool_defaults)
+        )
+        self._rule_provider.set_tool_defaults(self._tool_defaults)
         self._last_tool: str | None = None
         self._last_args: dict[str, Any] = {}
         self._last_service: str = ""
@@ -364,23 +368,24 @@ class SafeOpsAgent:
         clarification 非 None 表示 LLM 追问用户；fallback_note 记录
         LLM 失败原因，保证回退在决策轨迹中可见而非静默发生。
         """
+        tool_descriptions = [
+            {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.parameters,
+                "required": t.required,
+                "risk": t.risk.value,
+            }
+            for t in self.tools.values()
+        ]
+
         if self._rule_fast_path:
-            tool_name, args = self._select_tool(text)
+            tool_name, args, _reasoning, _clar = self._rule_provider.select_tool(text, tool_descriptions)
             if tool_name is not None:
                 return tool_name, args, "rule", "", None, ""
 
         fallback_note = ""
         if not isinstance(self.llm, RuleBasedProvider):
-            tool_descriptions = [
-                {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                    "required": t.required,
-                    "risk": t.risk.value,
-                }
-                for t in self.tools.values()
-            ]
             tool_name, args, reasoning, clarification = self.llm.select_tool(
                 text, tool_descriptions, self._conversation_history
             )
@@ -393,8 +398,17 @@ class SafeOpsAgent:
             if reasoning:
                 fallback_note = reasoning
 
-        tool_name, args = self._select_tool(text)
+        tool_name, args, _reasoning, _clar = self._rule_provider.select_tool(text, tool_descriptions)
         return tool_name, args, "rule", "", None, fallback_note
+
+    def _select_tool(self, text: str) -> tuple[str | None, dict[str, Any]]:
+        """兼容旧的规则路由入口，实际匹配统一委托给 RuleBasedProvider。"""
+        self._rule_provider.set_tool_defaults(self._tool_defaults)
+        return self._rule_provider.match(text)
+
+    def _extract_service_name(self, text: str) -> str:
+        """兼容既有调用方，服务名提取由 RuleBasedProvider 统一实现。"""
+        return self._rule_provider.extract_service_name(text)
 
     def _sanitize_llm_text(self, text: str | None, limit: int = 300) -> str:
         """LLM 输出侧护栏：截断超长文本；命中高风险策略的输出整体屏蔽。
@@ -411,138 +425,6 @@ class SafeOpsAgent:
             return "（模型输出命中高风险安全策略，已屏蔽）"
         return cleaned
 
-    def _select_tool(self, text: str) -> tuple[str | None, dict[str, Any]]:
-        normalized = text.lower()
-        compact = normalized.replace(" ", "")
-
-        if any(keyword in compact for keyword in ("诊断", "排查", "故障", "异常", "排障", "检查一下", "怎么了", "什么问题")):
-            return self._select_diagnostic_tool(text, compact)
-        if any(keyword in compact for keyword in ("系统信息", "系统版本", "操作系统", "内核", "主机信息", "主机名", "机器信息", "uname")):
-            return "system.info", {}
-        if any(keyword in compact for keyword in ("磁盘分区", "挂载点", "分区信息", "df", "磁盘挂载")):
-            return "disk.partitions", {}
-        if any(keyword in compact for keyword in ("cpu", "内存", "资源", "负载", "内存占用", "cpu占用", "使用率", "利用率", "load", "磁盘用量", "磁盘使用")):
-            return "system.resources", {}
-        if any(keyword in compact for keyword in ("进程", "process", "任务管理器", "跑了什么", "运行了什么")):
-            return "process.list", {"limit": self._tool_default("process_limit", 10)}
-        if any(keyword in compact for keyword in ("错误日志", "系统日志", "journal", "日志", "报错", "error")):
-            return "logs.recent_errors", {"lines": self._tool_default("log_lines", 100)}
-        if "受管文件" in compact and any(keyword in compact for keyword in ("列表", "查看", "有哪些")):
-            return "file.list_managed", {}
-        if any(keyword in compact for keyword in ("回滚", "恢复")) and any(
-            keyword in compact for keyword in ("快照", "受管文件", "snapshot")
-        ):
-            return "file.rollback", {"snapshot_id": self._extract_snapshot_id(text)}
-        if "受管文件" in compact and any(keyword in compact for keyword in ("写入", "保存", "更新")):
-            name, content = self._extract_managed_file(text)
-            return "file.apply", {"name": name, "content": content}
-        if "重启" in compact and ("服务" in compact or self._has_service_hint(compact)):
-            service = self._extract_service_name(text)
-            return "service.restart", {"service": service}
-        if "启动" in compact and ("服务" in compact or self._has_service_hint(compact)):
-            service = self._extract_service_name(text)
-            return "service.start", {"service": service}
-        if any(keyword in compact for keyword in ("停止", "停掉")) and (
-            "服务" in compact or self._has_service_hint(compact)
-        ):
-            service = self._extract_service_name(text)
-            return "service.stop", {"service": service}
-        if ("服务" in compact or self._has_service_hint(compact)) and any(keyword in compact for keyword in ("状态", "查询", "查看", "跑着没", "运行", "是否正常", "在不在")):
-            service = self._extract_service_name(text)
-            return "service.status", {"service": service}
-        if any(keyword in compact for keyword in ("网络连接", "连接列表", "netstat", "tcp连接", "udp连接", "网络状态")):
-            return "network.connections", {"limit": self._tool_default("network_limit", 50)}
-        if any(keyword in compact for keyword in ("监听端口", "端口监听", "开放端口", "端口列表", "端口", "port", "哪些端口")):
-            return "network.listening_ports", {"limit": self._tool_default("network_limit", 50)}
-        if any(keyword in compact for keyword in ("用户列表", "本地用户", "系统用户", "有哪些用户", "用户")):
-            return "user.list", {}
-        if any(keyword in compact for keyword in ("定时任务", "计划任务", "cron", "crontab", "定时")):
-            return "schedule.cron", {}
-        if any(keyword in compact for keyword in ("环境变量", "env", "path变量")):
-            return "environment.safe", {}
-        if any(keyword in compact for keyword in ("软件包", "安装包", "rpm", "dpkg", "装了什么", "有没有安装", "是否安装", "包版本")):
-            return "package.query", {"package": self._extract_package_name(text)}
-        return None, {}
-
-    def _has_service_hint(self, compact: str) -> bool:
-        known = ("nginx", "httpd", "apache", "mysql", "mariadb", "postgresql",
-                 "redis", "docker", "sshd", "firewalld", "iptables", "crond",
-                 "tomcat", "java", "node", "python", "kubelet")
-        return any(s in compact for s in known)
-
-    def _select_diagnostic_tool(self, text: str, compact: str) -> tuple[str, dict[str, Any]]:
-        if any(keyword in compact for keyword in ("端口", "监听")):
-            return "diagnostics.network_ports", {"limit": self._tool_default("network_limit", 50)}
-        if "服务" in compact:
-            return "diagnostics.service", {"service": self._extract_service_name(text)}
-        if any(keyword in compact for keyword in ("日志", "journal", "错误")):
-            return "diagnostics.logs", {"lines": self._tool_default("log_lines", 100)}
-        if any(keyword in compact for keyword in ("磁盘", "空间", "挂载")):
-            return "diagnostics.disk", {}
-        if any(keyword in compact for keyword in ("cpu", "内存", "资源", "负载")):
-            return "diagnostics.resources", {}
-        return "diagnostics.overview", {}
-
-    def _tool_default(self, key: str, fallback: int) -> int:
-        try:
-            return int(self._tool_defaults.get(key, fallback))
-        except (TypeError, ValueError):
-            return fallback
-
-    def _extract_service_name(self, text: str) -> str:
-        lower = text.lower()
-        known_services = (
-            "redis-server", "systemd-resolved", "networkmanager", "containerd",
-            "apache2", "postgresql", "mariadb", "firewalld", "iptables",
-            "dockerd", "kubelet", "apache", "mysqld", "nginx", "httpd",
-            "mysql", "redis", "docker", "sshd", "crond", "cron",
-            "tomcat", "named", "bind9",
-        )
-        for svc in known_services:
-            if svc in lower:
-                return svc
-        tokens = text.replace("，", " ").replace(",", " ").split()
-        stop_words = {"服务", "状态", "查询", "查看", "重启", "诊断", "排查", "故障", "异常", "的"}
-        for token in tokens:
-            if token.lower() in stop_words:
-                continue
-            if any(char.isascii() and (char.isalnum() or char in "_.-@") for char in token):
-                cleaned = "".join(char for char in token if char.isascii() and (char.isalnum() or char in "_.-@"))
-                if cleaned:
-                    return cleaned
-        return ""
-
-    def _extract_package_name(self, text: str) -> str:
-        tokens = text.replace("，", " ").replace(",", " ").split()
-        stop_words = {"查询", "查看", "软件包", "安装包", "版本", "列表", "的"}
-        for token in tokens:
-            if token.lower() in stop_words:
-                continue
-            cleaned = "".join(char for char in token if char.isascii() and (char.isalnum() or char in "+_.:-"))
-            if cleaned:
-                return cleaned
-        return ""
-
-    def _extract_managed_file(self, text: str) -> tuple[str, str]:
-        match = re.search(
-            r"(?:受管文件|文件)\s+([A-Za-z0-9._-]+)\s+"
-            r"(?:内容为|内容|写入)\s*[:：]?\s*(.+)$",
-            text,
-            flags=re.IGNORECASE,
-        )
-        if match:
-            return match.group(1), match.group(2).strip()
-        name_match = re.search(r"\b([A-Za-z0-9][A-Za-z0-9._-]*)\b", text)
-        return (name_match.group(1) if name_match else ""), ""
-
-    def _extract_snapshot_id(self, text: str) -> str:
-        match = re.search(
-            r"(?:快照|snapshot(?:_id)?)\s*[:：]?\s*([A-Za-z0-9._-]+)",
-            text,
-            flags=re.IGNORECASE,
-        )
-        return match.group(1) if match else ""
-
     def _resolve_context(self, text: str) -> str:
         compact = text.replace(" ", "").lower()
         context_refs = ("它", "该服务", "那个服务", "刚才的", "上一个", "同一个")
@@ -553,7 +435,7 @@ class SafeOpsAgent:
                 if ref in text:
                     text = text.replace(ref, self._last_service, 1)
                     return text
-            if "它" in text and ("服务" in compact or "重启" in compact or "状态" in compact or self._has_service_hint(compact)):
+            if "它" in text and ("服务" in compact or "重启" in compact or "状态" in compact or self._rule_provider.has_service_hint(compact)):
                 text = text.replace("它", self._last_service, 1)
         return text
 

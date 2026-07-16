@@ -8,7 +8,7 @@ from typing import Any
 from safeops_agent.agent import SafeOpsAgent
 from safeops_agent.audit.logger import AuditLogger
 from safeops_agent.llm import RuleBasedProvider, get_provider
-from safeops_agent.llm.provider import DeepSeekProvider
+from safeops_agent.llm.provider import DeepSeekProvider, OpenAICompatibleProvider
 from safeops_agent.llm.prompts import build_tool_selection_messages, build_tools_description
 
 
@@ -40,6 +40,21 @@ class GetProviderTest(unittest.TestCase):
     def test_disable_flag_forces_rule_based(self, _mock_yaml):
         provider = get_provider()
         self.assertIsInstance(provider, RuleBasedProvider)
+
+    @patch.dict("os.environ", {"LLM_API_KEY": "sk-test123", "SAFEOPS_LLM_DISABLED": ""}, clear=False)
+    @patch(
+        "safeops_agent.config.load_simple_yaml",
+        return_value={
+            "llm_enabled": True,
+            "llm_provider": "openai-compatible",
+            "llm_model": "local-model",
+            "llm_base_url": "http://127.0.0.1:11434/v1",
+        },
+    )
+    def test_returns_openai_compatible_provider(self, _mock_yaml):
+        provider = get_provider()
+        self.assertIsInstance(provider, OpenAICompatibleProvider)
+        self.assertIn("local-model", provider.describe())
 
 
 class PromptsTest(unittest.TestCase):
