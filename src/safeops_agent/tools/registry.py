@@ -81,7 +81,10 @@ def _build_specs() -> list[ToolSpec]:
             description="查看网络连接",
             risk=RiskLevel.LOW,
             handler=list_network_connections,
-            parameters={"limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+            parameters={
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            },
             category="network",
         ),
         ToolSpec(
