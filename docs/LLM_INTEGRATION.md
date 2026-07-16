@@ -26,8 +26,8 @@ Copy-Item config\llm.local.yaml.example config\llm.local.yaml
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `llm_enabled` | true | Provider 总开关 |
-| `llm_provider` | deepseek | 当前实现 |
-| `llm_model` | deepseek-v4-pro | 请求模型名 |
+| `llm_provider` | deepseek | 支持 `deepseek`、`openai-compatible`（也接受 `openai`） |
+| `llm_model` | deepseek-chat | 请求模型名 |
 | `llm_base_url` | https://api.deepseek.com/v1 | OpenAI 兼容基址 |
 | `llm_timeout` | 8 | 秒级超时 |
 | `llm_rule_fast_path` | false | true 时先用高置信本地规则 |

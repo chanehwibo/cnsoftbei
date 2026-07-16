@@ -45,7 +45,7 @@ npm run test:web
 结果：
 
 ~~~text
-Ran 216 tests
+Ran 217 tests
 OK
 ~~~
 
@@ -57,7 +57,7 @@ Node 前端测试：7 项通过。
 | --- | ---: |
 | 语句覆盖率 | 75.1% |
 | 分支覆盖率 | 64.0% |
-| 综合覆盖率 | 72.1% |
+| 综合覆盖率 | 72.3% |
 | CI 最低门槛 | 70.0% |
 
 CI 先以 `python -m pip install -e ".[test]"` 安装项目、PyYAML 和 coverage，再执行 `pip check`；随后生成 `coverage.xml` 并按操作系统和 Python 版本上传独立报告。依赖不完整或覆盖率低于门槛时任务失败。
@@ -135,7 +135,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 
 软件验收通过需同时满足：
 
-1. 216 项 unittest 与 7 项前端 Node 测试全部通过；
+1. 217 项 unittest 与 7 项前端 Node 测试全部通过；
 2. Python 综合覆盖率不低于 70.0%，并生成 XML 报告；
 3. ResourceWarning 严格模式无警告；
 4. 配置校验退出码为 0；

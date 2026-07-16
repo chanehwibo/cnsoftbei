@@ -96,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File scripts\package.ps1
 powershell -ExecutionPolicy Bypass -File scripts\verify-package.ps1
 ~~~
 
-当前自动化套件包含 216 项 Python 测试和 7 项前端 Node 测试；Python 分支覆盖综合值为 72.1%，CI 门槛为 70.0%。软件级验收在 Windows/Python 3.14 与 Node 24 环境执行；本次验收范围不包含硬件或麒麟实机执行。
+当前自动化套件包含 217 项 Python 测试和 7 项前端 Node 测试；Python 分支覆盖综合值为 72.3%，CI 门槛为 70.0%。软件级验收在 Windows/Python 3.14 与 Node 24 环境执行；本次验收范围不包含硬件或麒麟实机执行。
 
 ## 文档
 

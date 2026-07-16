@@ -102,7 +102,7 @@ safeops-agent --list-tools
 python -W error::ResourceWarning -m unittest discover -s tests
 ~~~
 
-展示 216 项 Python 测试、7 项前端测试和 72.1% 综合覆盖率通过。说明另有 Web 冒烟、wheel 隔离安装和提交包禁止项校验。
+展示 217 项 Python 测试、7 项前端测试和 72.3% 综合覆盖率通过。说明另有 Web 冒烟、wheel 隔离安装和提交包禁止项校验。
 
 ## 3. 一键演示
 
