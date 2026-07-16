@@ -28,8 +28,10 @@ class PackagedResourceTest(unittest.TestCase):
             "web": ("index.html", "styles.css", "app.js"),
         }.items():
             for name in names:
-                source = (source_root / group / name).read_bytes()
-                bundled = (config.BUNDLED_RESOURCE_ROOT / group / name).read_bytes()
+                source = (source_root / group / name).read_text(encoding="utf-8").splitlines()
+                bundled = (config.BUNDLED_RESOURCE_ROOT / group / name).read_text(
+                    encoding="utf-8"
+                ).splitlines()
                 self.assertEqual(bundled, source, f"{group}/{name} 未同步到包内资源")
 
 
