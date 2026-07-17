@@ -1,5 +1,7 @@
 # SafeOps Agent 设计技术文档
 
+> 文档状态：与 2026-07-16 当前实现同步。软件级验收已覆盖 Windows、真实 DeepSeek 调用和安装交付；麒麟硬件实机验证仍属于下一阶段。
+
 ## 1. 作品目标
 
 SafeOps Agent 面向麒麟操作系统的日常状态查询、故障诊断、受控服务操作和受管文件变更。系统把自然语言交互的易用性与本地确定性安全控制结合起来，保证“理解”和“授权”分离。
@@ -38,11 +40,27 @@ SafeOps Agent 面向麒麟操作系统的日常状态查询、故障诊断、受
 ### 3.2 双通道路由
 
 - DeepSeekProvider 调用 OpenAI 兼容接口，返回工具名、对象参数、一句话选择说明和可选追问；
-- RuleBasedProvider 与 Agent 内规则完成离线确定性路由；
+- OpenAICompatibleProvider 复用同一 `chat/completions` 契约，可连接 OpenAI 兼容服务；
+- RuleBasedProvider 独立完成离线确定性路由，Agent 只负责编排并保留兼容入口；
 - API Key 缺失、网络异常、超时、非法 JSON、未知工具时自动使用本地路由；
 - `SAFEOPS_LLM_DISABLED=1` 可强制离线。
 
 模型只提出候选工具。工具存在性、必填参数、类型、取值范围、注入字符、敏感路径和风险等级全部由本地代码验证。
+
+### 3.3 请求时序
+
+~~~text
+用户输入
+  -> 长度与高危意图筛查（命中则直接 HIGH）
+  -> DeepSeek/OpenAI 兼容 Provider 或 RuleBasedProvider
+  -> 固定工具名 + JSON 参数
+  -> 注册表存在性、Schema 与参数安全校验
+  -> PolicyEngine 风险、服务与路径裁决
+  -> LOW 执行 / MEDIUM 预演与令牌 / HIGH 拒绝
+  -> ToolResult + 结构化决策轨迹 + 签名审计
+~~~
+
+在线模型返回的工具名、参数、追问和选择说明全部按不可信输入处理。Provider 失败只影响意图增强，不影响本地策略和固定工具能力。
 
 ## 4. 风险模型
 
@@ -125,6 +143,17 @@ Web 响应使用 `decision_trace` 作为界面字段，并保留 `reasoning_chai
 
 诊断模块先采集 CPU 负载、内存/磁盘比例、监听端口、服务状态和错误日志，再按明确阈值或日志特征生成原因与动作；未命中证据时返回健康或信息不足状态，不输出固定故障模板。诊断证据同时记录所用阈值、命中端口或已计算挂载点，便于评审复核。
 
+主要 Web 接口：
+
+| 接口 | 方法 | 作用 |
+| --- | --- | --- |
+| `/api/health` | GET | 健康检查 |
+| `/api/auth` | POST | 校验令牌并建立 HttpOnly 会话 |
+| `/api/tools` | GET | 返回工具 Schema、风险和分类 |
+| `/api/agent` | POST | 提交自然语言请求或确认 action_id |
+| `/api/audit` | GET | 按条件查询脱敏审计 |
+| `/api/events` | GET | 建立经过认证的 SSE 通道 |
+
 ## 9. MCP 设计
 
 stdio 服务使用换行分隔 JSON-RPC 2.0，当前协议 `2025-11-25`，兼容三个较早版本。生命周期为：
@@ -141,8 +170,23 @@ stdio 服务使用换行分隔 JSON-RPC 2.0，当前协议 `2025-11-25`，兼容
 
 发布脚本排除 `data/`、`config/llm.local.yaml`、`.env`、缓存和版本库元数据。校验脚本同时检查关键交付文件和禁止项。
 
-## 11. 验证
+配置优先级：
+
+1. API Key 等私密值优先读取环境变量；
+2. 工作目录 `config/llm.local.yaml` 覆盖公共模型配置；
+3. 工作目录公共 YAML 覆盖 wheel 内置默认配置；
+4. 找不到外部 Web 资源时使用 wheel package-data。
+
+## 11. 已知边界
+
+- 当前没有任意 Shell、插件动态执行或模型直执行通道；扩展能力必须先注册固定工具；
+- 服务生命周期真实执行依赖麒麟/Linux 上的 `systemctl` 及最小权限配置；
+- 当前完成 Windows 软件级回归和真实 DeepSeek 冒烟，尚未形成麒麟硬件实机报告；
+- Web 原生服务适合比赛演示和受控部署；大规模生产部署应由成熟 HTTPS 反向代理承担公网入口；
+- 诊断依据当前采集点和明确规则生成，不宣称替代完整 APM、SIEM 或专家复盘。
+
+## 12. 验证
 
 自动化测试覆盖 Agent、策略、工具、确认、加密、并发、审计篡改、MCP 生命周期与 Schema、Web 认证、配置、安装资源和前端逻辑。当前 217 项 Python 测试与 7 项 Node 测试全部通过；Python 分支覆盖综合值为 72.3%，CI 门槛为 70.0%，且以 ResourceWarning 作为错误运行。
 
-另有配置校验、Web 冒烟、CLI 验收、wheel 隔离安装和发布包验证。软件级验收不包含硬件或麒麟实机执行。
+另有配置校验、Web 冒烟、CLI 验收、MCP 真实握手、审计验签、wheel 隔离安装和 95 条目发布包验证。真实 `deepseek-chat` 请求成功选择 `system.info` 并完成 LOW 工具执行。软件级验收不包含硬件或麒麟实机执行。
